@@ -147,7 +147,7 @@ export default function SalesList() {
       setSales((prev) =>
         prev.map((s) =>
           s.invoice_number === invoiceNumber
-            ? { ...s, customer_name: customerName.trim() || null, mobile_number: mobileNumber.trim() || null }
+            ? { ...s, customer_name: customerName.trim() || undefined, mobile_number: mobileNumber.trim() || undefined }
             : s,
         ),
       );
