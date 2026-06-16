@@ -4,9 +4,15 @@ import type { Sale } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
 
+interface CreditPayment {
+  customer_name: string;
+  amount: number;
+}
+
 interface Props {
   sales: Sale[];
   allSales: Sale[];
+  creditPayments: CreditPayment[];
 }
 
 interface InvoiceSummary {
@@ -26,7 +32,7 @@ interface CustomerCreditRow {
   lastDate: string;
 }
 
-function buildCreditRows(sales: Sale[]): CustomerCreditRow[] {
+function buildCreditRows(sales: Sale[], payments: CreditPayment[]): CustomerCreditRow[] {
   const creditSales = sales.filter((s) => s.payment_mode === 'Credit');
 
   // Group by invoice first
@@ -54,19 +60,33 @@ function buildCreditRows(sales: Sale[]): CustomerCreditRow[] {
     if (first.sale_date > row.lastDate) row.lastDate = first.sale_date;
   }
 
-  return [...custMap.values()].sort((a, b) => b.total - a.total);
+  // Build payments map keyed by customer name (same approach as Dashboard)
+  const paymentsMap = new Map<string, number>();
+  for (const p of payments) {
+    const key = (p.customer_name || '').trim().toLowerCase();
+    paymentsMap.set(key, (paymentsMap.get(key) || 0) + p.amount);
+  }
+
+  // Subtract payments and remove fully-paid customers
+  return [...custMap.values()]
+    .map((row) => ({
+      ...row,
+      total: Math.max(0, row.total - (paymentsMap.get(row.name.toLowerCase()) || 0)),
+    }))
+    .filter((row) => row.total > 0)
+    .sort((a, b) => b.total - a.total);
 }
 
-export default function CreditReport({ sales, allSales }: Props) {
+export default function CreditReport({ sales, allSales, creditPayments }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
 
-  // Current period credit rows
-  const periodRows = useMemo(() => buildCreditRows(sales), [sales]);
+  // Current period credit rows (net of all payments)
+  const periodRows = useMemo(() => buildCreditRows(sales, creditPayments), [sales, creditPayments]);
   const periodTotal = useMemo(() => periodRows.reduce((s, r) => s + r.total, 0), [periodRows]);
 
-  // All-time credit rows
-  const allTimeRows = useMemo(() => buildCreditRows(allSales), [allSales]);
+  // All-time credit rows (net of all payments)
+  const allTimeRows = useMemo(() => buildCreditRows(allSales, creditPayments), [allSales, creditPayments]);
   const allTimeTotal = useMemo(() => allTimeRows.reduce((s, r) => s + r.total, 0), [allTimeRows]);
 
   const [view, setView] = useState<'period' | 'alltime'>('alltime');

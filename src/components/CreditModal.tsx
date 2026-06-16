@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { X, User, CheckCircle } from 'lucide-react';
+import { X, User, CheckCircle, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency, todayISO } from '../utils/helpers';
 
@@ -37,6 +37,7 @@ export default function CreditModal({
   onClose,
   onPayOff,
 }: Props) {
+  const [search, setSearch] = useState('');
   const [payingOff, setPayingOff] = useState<string | null>(null);
   const [form, setForm] = useState<PayOffForm>({ amount: '', mode: 'Cash', date: todayISO(), remarks: '' });
   const [saving, setSaving] = useState(false);
@@ -55,6 +56,10 @@ export default function CreditModal({
     setSaving(false);
     setPayingOff(null);
   };
+
+  const filtered = search.trim()
+    ? customers.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : customers;
 
   const colSpan = onPayOff ? 4 : 3;
 
@@ -76,10 +81,28 @@ export default function CreditModal({
           </button>
         </div>
 
+        {/* Search */}
+        {customers.length > 0 && (
+          <div className="px-5 py-3 border-b border-gray-100">
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search customer…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+        )}
+
         {/* List */}
         <div className="overflow-y-auto flex-1">
           {customers.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-sm">No outstanding credit</div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 text-gray-400 text-sm">No customers match "{search}"</div>
           ) : (
             <table className="w-full">
               <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
@@ -91,7 +114,7 @@ export default function CreditModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {customers.map((c, i) => (
+                {filtered.map((c, i) => (
                   <Fragment key={`${c.name}-${i}`}>
                     <tr className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-3.5 text-sm text-gray-400 font-medium">{i + 1}</td>

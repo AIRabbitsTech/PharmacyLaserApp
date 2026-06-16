@@ -53,6 +53,7 @@ export default function Reports() {
   const [filters, setFilters] = useState<ReportFilters>({ preset: 'today', startDate: today, endDate: today });
   const [sales, setSales] = useState<Sale[]>([]);
   const [allSales, setAllSales] = useState<Sale[]>([]);
+  const [creditPayments, setCreditPayments] = useState<{ customer_name: string; amount: number }[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('register');
 
   // Load date-filtered sales
@@ -62,16 +63,22 @@ export default function Reports() {
     setSales(data);
   }, [fetchSalesByDateRange]);
 
-  // Load all-time sales once — uses a direct Supabase query so it does not
-  // touch the shared `loading` state used by the date-filtered fetch.
+  // Load all-time sales and all credit payments once.
   useEffect(() => {
-    supabase
-      .from('sales')
-      .select('*')
-      .gte('sale_date', '2020-01-01')
-      .lte('sale_date', todayISO())
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setAllSales(data || []));
+    Promise.all([
+      supabase
+        .from('sales')
+        .select('*')
+        .gte('sale_date', '2020-01-01')
+        .lte('sale_date', todayISO())
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('credit_payments')
+        .select('customer_name, amount'),
+    ]).then(([salesRes, paymentsRes]) => {
+      setAllSales(salesRes.data || []);
+      setCreditPayments(paymentsRes.data || []);
+    });
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,7 +223,7 @@ export default function Reports() {
               <ExpiryReport />
             )}
             {activeTab === 'credit' && (
-              <CreditReport sales={sales} allSales={allSales} />
+              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} />
             )}
             {activeTab === 'customers' && (
               <CustomerReport sales={sales} allSales={allSales} />
