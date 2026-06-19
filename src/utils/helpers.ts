@@ -8,6 +8,21 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Rounds grand total: decimal <= 0.50 → floor, > 0.50 → ceil
+export function roundGrandTotal(amount: number): number {
+  const decimal = amount - Math.floor(amount);
+  return decimal <= 0.5 ? Math.floor(amount) : Math.ceil(amount);
+}
+
+export function formatGrandTotal(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(roundGrandTotal(amount));
+}
+
 export function formatDate(dateStr: string): string {
   return format(new Date(dateStr), 'dd/MM/yyyy');
 }

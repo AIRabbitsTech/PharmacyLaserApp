@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { Plus, Trash2, Copy } from 'lucide-react';
 import type { SaleFormData, MedicineItem, PaymentMode } from '../types';
+import { formatGrandTotal } from '../utils/helpers';
 import AutocompleteInput from './AutocompleteInput';
 
 const paymentModes: PaymentMode[] = ['Cash', 'UPI', 'Credit'];
@@ -114,7 +115,7 @@ export default function SaleForm({
           <div>
             <label className="label">Disc (%)</label>
             <input type="number" className="input-field" value={med.discount}
-              min="0" max="100" step="1"
+              min="0" max="100" step="0.01"
               onChange={(e) => onMedicineChange(0, 'discount', e.target.value)} />
           </div>
           <div>
@@ -285,7 +286,7 @@ export default function SaleForm({
                     {/* MRP */}
                     <td className="border-r border-gray-200 p-0">
                       <input type="number" className={`${ci} text-right`} placeholder="0.00"
-                        min="1" step="1"
+                        min="0" step="0.01"
                         value={med.mrp}
                         onChange={(e) => onMedicineChange(idx, 'mrp', e.target.value)} />
                     </td>
@@ -293,7 +294,7 @@ export default function SaleForm({
                     {/* Discount */}
                     <td className="border-r border-gray-200 p-0">
                       <input type="number" className={`${ci} text-right`} placeholder="0"
-                        min="0" max="100" step="1"
+                        min="0" max="100" step="0.01"
                         value={med.discount}
                         onChange={(e) => onMedicineChange(idx, 'discount', e.target.value)} />
                     </td>
@@ -361,7 +362,7 @@ export default function SaleForm({
                 type="number"
                 className="w-28 text-right border-2 border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:border-blue-500 focus:outline-none transition-colors"
                 placeholder="0"
-                min="0" max="100" step="1"
+                min="0" max="100" step="0.01"
                 value={formData.bill_discount}
                 onChange={(e) => onFieldChange('bill_discount', e.target.value)}
               />
@@ -369,7 +370,7 @@ export default function SaleForm({
             {/* Grand total row */}
             <div className="flex items-center justify-between px-4 py-4 bg-blue-600 text-white">
               <span className="font-bold text-base">Grand Total</span>
-              <span className="text-2xl font-bold tabular-nums">₹{grandTotal.toFixed(2)}</span>
+              <span className="text-2xl font-bold tabular-nums">{formatGrandTotal(grandTotal)}</span>
             </div>
           </div>
         </div>
