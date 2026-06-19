@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FileDown, FileText, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import type { Sale } from '../../types';
-import { formatCurrency, formatDate, formatGrandTotal } from '../../utils/helpers';
+import { formatDate, formatGrandTotal } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
 import { exportSummaryToExcel } from '../../utils/exportExcel';
 import { exportToPdf } from '../../utils/exportPdf';
