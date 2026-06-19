@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import { X, User, CheckCircle, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { formatCurrency, todayISO } from '../utils/helpers';
+import { formatGrandTotal, roundGrandTotal, todayISO } from '../utils/helpers';
 
 export interface CustomerCredit {
   name: string;
@@ -44,7 +44,7 @@ export default function CreditModal({
 
   const openPayOff = (c: CustomerCredit) => {
     setPayingOff(c.name);
-    setForm({ amount: c.amount.toFixed(2), mode: 'Cash', date: todayISO(), remarks: '' });
+    setForm({ amount: String(roundGrandTotal(c.amount)), mode: 'Cash', date: todayISO(), remarks: '' });
   };
 
   const handleConfirm = async (c: CustomerCredit) => {
@@ -130,7 +130,7 @@ export default function CreditModal({
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <span className="text-sm font-bold text-orange-600">{formatCurrency(c.amount)}</span>
+                        <span className="text-sm font-bold text-orange-600">{formatGrandTotal(c.amount)}</span>
                       </td>
                       {onPayOff && (
                         <td className="px-5 py-3.5 text-right">
@@ -224,7 +224,7 @@ export default function CreditModal({
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-orange-50 rounded-b-2xl">
           <span className="text-sm font-semibold text-gray-700">Total Outstanding</span>
-          <span className="text-lg font-bold text-orange-600">{formatCurrency(total)}</span>
+          <span className="text-lg font-bold text-orange-600">{formatGrandTotal(total)}</span>
         </div>
       </div>
     </div>

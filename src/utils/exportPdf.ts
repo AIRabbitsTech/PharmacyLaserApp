@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Sale } from '../types';
-import { formatDate, formatCurrency } from './helpers';
+import { formatDate, formatCurrency, formatGrandTotal } from './helpers';
 
 export function exportToPdf(
   sales: Sale[],
@@ -24,10 +24,10 @@ export function exportToPdf(
   // Summary boxes
   doc.setFontSize(10);
   const summaryItems = [
-    { label: 'Total Sales', value: formatCurrency(summary.total), color: [30, 64, 175] as [number, number, number] },
-    { label: 'Cash', value: formatCurrency(summary.cash), color: [22, 163, 74] as [number, number, number] },
-    { label: 'UPI', value: formatCurrency(summary.upi), color: [37, 99, 235] as [number, number, number] },
-    { label: 'Credit', value: formatCurrency(summary.credit), color: [234, 88, 12] as [number, number, number] },
+    { label: 'Total Sales', value: formatGrandTotal(summary.total), color: [30, 64, 175] as [number, number, number] },
+    { label: 'Cash', value: formatGrandTotal(summary.cash), color: [22, 163, 74] as [number, number, number] },
+    { label: 'UPI', value: formatGrandTotal(summary.upi), color: [37, 99, 235] as [number, number, number] },
+    { label: 'Credit', value: formatGrandTotal(summary.credit), color: [234, 88, 12] as [number, number, number] },
     { label: 'Transactions', value: String(sales.length), color: [107, 114, 128] as [number, number, number] },
   ];
 
@@ -53,7 +53,7 @@ export function exportToPdf(
     s.quantity,
     formatCurrency(s.mrp),
     formatCurrency(s.selling_rate),
-    formatCurrency(s.total_amount),
+    formatGrandTotal(s.quantity * s.selling_rate),
     s.payment_mode,
     s.customer_name || '-',
   ]);

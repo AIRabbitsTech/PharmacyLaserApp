@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, User, Phone, CreditCard } from 'lucide-react';
 import type { Sale } from '../../types';
-import { formatCurrency, formatDate } from '../../utils/helpers';
+import { formatGrandTotal, formatDate } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
 
 interface CreditPayment {
@@ -131,7 +131,7 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
             <p className="text-xs font-bold text-orange-600 uppercase tracking-wide">Total Credit Outstanding</p>
             <p className="text-xs text-orange-400 mt-0.5">{rows.length} customers · {rows.reduce((s, r) => s + r.invoices.length, 0)} invoices</p>
           </div>
-          <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatCurrency(grandTotal)}</p>
+          <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatGrandTotal(grandTotal)}</p>
         </div>
 
         {/* Customer rows */}
@@ -177,7 +177,7 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
                       </td>
                       <td className="table-cell text-center text-gray-600 font-medium">{row.invoices.length}</td>
                       <td className="table-cell text-right font-bold text-orange-700 tabular-nums text-base">
-                        {formatCurrency(row.total)}
+                        {formatGrandTotal(row.total)}
                       </td>
                       <td className="table-cell text-xs text-gray-500">{formatDate(row.lastDate)}</td>
                     </tr>
@@ -209,7 +209,7 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
                                     <td className="px-3 py-2 text-xs text-gray-500">{formatDate(inv.date)}</td>
                                     <td className="px-3 py-2 text-center text-xs text-gray-500">{inv.medicines}</td>
                                     <td className="px-3 py-2 text-right font-semibold text-orange-700 tabular-nums">
-                                      {formatCurrency(inv.amount)}
+                                      {formatGrandTotal(inv.amount)}
                                     </td>
                                   </tr>
                                 ))}
@@ -229,7 +229,7 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
                   Total ({rows.length} customers)
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold text-orange-700 tabular-nums text-base">
-                  {formatCurrency(grandTotal)}
+                  {formatGrandTotal(grandTotal)}
                 </td>
                 <td />
               </tr>

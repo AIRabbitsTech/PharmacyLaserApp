@@ -1,19 +1,16 @@
 import { useState, useEffect } from 'react';
-import { X, User, Phone, Receipt, Edit2, Trash2, Check, Pencil, Printer } from 'lucide-react';
+import { X, User, Phone, Receipt, Check, Pencil, Printer } from 'lucide-react';
 import type { Sale } from '../types';
-import { formatCurrency, formatDate } from '../utils/helpers';
+import { formatCurrency, formatDate, formatGrandTotal } from '../utils/helpers';
 import { printInvoice } from '../utils/printInvoice';
 
 interface InvoiceModalProps {
   sales: Sale[];
   onClose: () => void;
-  onEdit?: (sale: Sale) => void;
-  onDelete?: (id: string) => void;
   onUpdateCustomer?: (invoiceNumber: string, customerName: string, mobileNumber: string) => Promise<boolean>;
 }
 
-export default function InvoiceModal({ sales, onClose, onEdit, onDelete, onUpdateCustomer }: InvoiceModalProps) {
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: InvoiceModalProps) {
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftMobile, setDraftMobile] = useState('');
@@ -49,6 +46,10 @@ export default function InvoiceModal({ sales, onClose, onEdit, onDelete, onUpdat
 
   const first = sales[0];
   const total = sales.reduce((s, x) => s + x.total_amount, 0);
+  const subtotal = parseFloat(
+    sales.reduce((s, x) => s + x.quantity * x.selling_rate, 0).toFixed(2)
+  );
+  const billDiscount = first.bill_discount ?? 0;
 
   const paymentBadge = (mode: string) => {
     if (mode === 'Cash') return <span className="badge-cash">{mode}</span>;
@@ -171,9 +172,6 @@ export default function InvoiceModal({ sales, onClose, onEdit, onDelete, onUpdat
                   <th className="table-header">MRP</th>
                   <th className="table-header">Rate</th>
                   <th className="table-header text-right">Total</th>
-                  {(onEdit || onDelete) && (
-                    <th className="table-header text-center">Actions</th>
-                  )}
                 </tr>
               </thead>
               <tbody>
@@ -191,62 +189,33 @@ export default function InvoiceModal({ sales, onClose, onEdit, onDelete, onUpdat
                     <td className="table-cell text-sm">₹{sale.mrp}</td>
                     <td className="table-cell text-sm">₹{sale.selling_rate}</td>
                     <td className="table-cell text-right font-semibold">
-                      {formatCurrency(sale.total_amount)}
+                      {formatCurrency(sale.quantity * sale.selling_rate)}
                     </td>
-                    {(onEdit || onDelete) && (
-                      <td className="table-cell">
-                        <div className="flex items-center justify-center gap-1">
-                          {onEdit && (
-                            <button
-                              onClick={() => onEdit(sale)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                              title="Edit"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                          )}
-                          {onDelete && (
-                            confirmId === sale.id ? (
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => { onDelete(sale.id); setConfirmId(null); }}
-                                  className="px-2 py-1 bg-red-500 text-white rounded text-xs font-medium"
-                                >
-                                  Yes
-                                </button>
-                                <button
-                                  onClick={() => setConfirmId(null)}
-                                  className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-medium"
-                                >
-                                  No
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmId(sale.id)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )
-                          )}
-                        </div>
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="bg-blue-50 border-t-2 border-blue-200">
                   <td colSpan={99} className="px-3 py-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-gray-600">
-                        Grand Total &middot; {sales.length} {sales.length === 1 ? 'medicine' : 'medicines'}
-                      </span>
-                      <span className="font-bold text-blue-700 text-base">
-                        {formatCurrency(total)}
-                      </span>
+                    <div className="flex flex-col items-end gap-0.5 text-sm">
+                      {billDiscount > 0 && (
+                        <>
+                          <div className="flex justify-between w-48">
+                            <span className="text-gray-500">Subtotal</span>
+                            <span className="text-gray-700 font-medium">{formatCurrency(subtotal)}</span>
+                          </div>
+                          <div className="flex justify-between w-48">
+                            <span className="text-gray-500">Bill Discount ({billDiscount}%)</span>
+                            <span className="text-red-500 font-medium">- {formatCurrency(subtotal - total)}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-between w-48 border-t border-blue-200 pt-1 mt-0.5">
+                        <span className="font-semibold text-gray-600">
+                          Grand Total &middot; {sales.length} {sales.length === 1 ? 'medicine' : 'medicines'}
+                        </span>
+                        <span className="font-bold text-blue-700 text-base">{formatGrandTotal(total)}</span>
+                      </div>
                     </div>
                   </td>
                 </tr>

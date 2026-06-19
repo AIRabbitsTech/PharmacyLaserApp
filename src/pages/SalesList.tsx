@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Search, X, Calendar, Pencil, Printer } from 'lucide-react';
 import { useSales } from '../hooks/useSales';
-import type { Sale, SaleFormData, MedicineItem } from '../types';
+import type { Sale } from '../types';
 import { formatCurrency, formatDate, todayISO, getDateRange } from '../utils/helpers';
-import SaleForm from '../components/SaleForm';
 import InvoiceModal from '../components/InvoiceModal';
 import InvoiceEditOverlay from '../components/InvoiceEditOverlay';
 import { printInvoice } from '../utils/printInvoice';
@@ -49,13 +48,11 @@ function groupByInvoice(sales: Sale[]): Sale[][] {
 }
 
 export default function SalesList() {
-  const { fetchSalesByDateRange, deleteSale, updateSale, updateInvoiceCustomer, loading } = useSales();
+  const { fetchSalesByDateRange, updateInvoiceCustomer, loading } = useSales();
   const [sales, setSales] = useState<Sale[]>([]);
   const [search, setSearch] = useState('');
   const [selectedInvoiceNumber, setSelectedInvoiceNumber] = useState<string | null>(null);
   const [editingInvoiceSales, setEditingInvoiceSales] = useState<Sale[] | null>(null);
-  const [editingSale, setEditingSale] = useState<Sale | null>(null);
-  const [editForm, setEditForm] = useState<SaleFormData | null>(null);
   const [datePreset, setDatePreset] = useState<DatePreset>('today');
   const [customStart, setCustomStart] = useState(todayISO());
   const [customEnd, setCustomEnd] = useState(todayISO());
@@ -92,38 +89,6 @@ export default function SalesList() {
     ? formatDate(rangeStart)
     : `${formatDate(rangeStart)} – ${formatDate(rangeEnd)}`;
 
-  const handleDelete = async (id: string) => {
-    const ok = await deleteSale(id);
-    if (ok) {
-      setSales((prev) => prev.filter((s) => s.id !== id));
-      toast.success('Sale deleted');
-    } else {
-      toast.error('Failed to delete sale');
-    }
-  };
-
-  const handleEditFromModal = (sale: Sale) => {
-    setSelectedInvoiceNumber(null);
-    setEditingSale(sale);
-    setEditForm({
-      customer_name: sale.customer_name || '',
-      mobile_number: sale.mobile_number || '',
-      payment_mode: sale.payment_mode,
-      remarks: sale.remarks || '',
-      bill_discount: '',
-      medicines: [{
-        medicine_name: sale.medicine_name,
-        batch_number: sale.batch_number || '',
-        expiry_date: sale.expiry_date || '',
-        quantity: String(sale.quantity),
-        mrp: String(sale.mrp),
-        selling_rate: String(sale.selling_rate),
-        discount: String(sale.discount || ''),
-        total_amount: String(sale.total_amount),
-      }],
-    });
-  };
-
   const handleInvoiceSaved = (
     _invoiceNumber: string,
     updated: Sale[],
@@ -156,20 +121,6 @@ export default function SalesList() {
       toast.error('Failed to update customer info');
     }
     return ok;
-  };
-
-  const handleEditSave = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editingSale || !editForm) return;
-    const updated = await updateSale(editingSale.id, editForm, editingSale.invoice_number);
-    if (updated) {
-      setSales((prev) => prev.map((s) => s.id === updated.id ? updated : s));
-      toast.success('Sale updated');
-      setEditingSale(null);
-      setEditForm(null);
-    } else {
-      toast.error('Failed to update sale');
-    }
   };
 
   const paymentBadge = (mode: string) => {
@@ -401,72 +352,10 @@ export default function SalesList() {
         <InvoiceModal
           sales={invoiceModalSales}
           onClose={() => setSelectedInvoiceNumber(null)}
-          onEdit={handleEditFromModal}
-          onDelete={handleDelete}
           onUpdateCustomer={handleUpdateCustomer}
         />
       )}
 
-      {/* Edit Modal */}
-      {editingSale && editForm && (
-        <div className="fixed inset-0 bg-black/50 z-60 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between rounded-t-2xl">
-              <div>
-                <h2 className="font-bold text-gray-900">Edit Sale</h2>
-                <p className="text-xs text-blue-600 font-mono">{editingSale.invoice_number}</p>
-              </div>
-              <button
-                onClick={() => { setEditingSale(null); setEditForm(null); }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={22} />
-              </button>
-            </div>
-            <div className="p-5">
-              <SaleForm
-                formData={editForm}
-                onFieldChange={(field, value) =>
-                  setEditForm((prev) => prev ? { ...prev, [field]: value } : null)
-                }
-                onMedicineChange={(idx, field, value) =>
-                  setEditForm((prev) => {
-                    if (!prev) return null;
-                    const medicines = [...prev.medicines];
-                    const updated = { ...medicines[idx], [field]: value };
-                    if (field === 'quantity' || field === 'mrp' || field === 'discount') {
-                      const q = parseFloat(field === 'quantity' ? value : updated.quantity) || 0;
-                      const m = parseFloat(field === 'mrp' ? value : updated.mrp) || 0;
-                      const d = parseFloat(field === 'discount' ? value : updated.discount) || 0;
-                      updated.total_amount = (q > 0 || m > 0) ? Math.max(0, q * m * (1 - d / 100)).toFixed(2) : '';
-                    }
-                    medicines[idx] = updated;
-                    return { ...prev, medicines };
-                  })
-                }
-                onAddMedicine={() =>
-                  setEditForm((prev) => prev ? {
-                    ...prev,
-                    medicines: [...prev.medicines, {
-                      medicine_name: '', batch_number: '', expiry_date: '',
-                      quantity: '', mrp: '', selling_rate: '', discount: '', total_amount: '',
-                    } as MedicineItem],
-                  } : null)
-                }
-                onRemoveMedicine={(idx) =>
-                  setEditForm((prev) => prev ? {
-                    ...prev,
-                    medicines: prev.medicines.filter((_, i) => i !== idx),
-                  } : null)
-                }
-                onSubmit={handleEditSave}
-                loading={loading}
-                isEdit
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { Sale } from '../types';
-import { formatDate } from './helpers';
+import { formatDate, roundGrandTotal } from './helpers';
 import { getPharmacyProfile } from '../hooks/usePharmacyProfile';
 
 export function printInvoice(sales: Sale[]): void {
@@ -9,9 +9,9 @@ export function printInvoice(sales: Sale[]): void {
   const first = sales[0];
   const grandTotal = sales.reduce((s, x) => s + x.total_amount, 0);
   const billDiscount = first.bill_discount ?? 0;
-  const subtotal = billDiscount > 0
-    ? parseFloat((grandTotal / (1 - billDiscount / 100)).toFixed(2))
-    : grandTotal;
+  const subtotal = parseFloat(
+    sales.reduce((s, x) => s + x.quantity * x.selling_rate, 0).toFixed(2)
+  );
 
   const rows = sales.map((s, i) => `
     <tr>
@@ -23,7 +23,7 @@ export function printInvoice(sales: Sale[]): void {
       <td>₹${s.mrp.toFixed(2)}</td>
       <td>${s.discount ? s.discount + '%' : '0%'}</td>
       <td>₹${s.selling_rate.toFixed(2)}</td>
-      <td style="text-align:right">₹${s.total_amount.toFixed(2)}</td>
+      <td style="text-align:right">₹${(s.quantity * s.selling_rate).toFixed(2)}</td>
     </tr>`).join('');
 
   const html = `<!DOCTYPE html>
@@ -101,7 +101,7 @@ export function printInvoice(sales: Sale[]): void {
       ${billDiscount > 0 ? `
       <tr><td>Subtotal</td><td>₹${subtotal.toFixed(2)}</td></tr>
       <tr><td>Bill Discount (${billDiscount}%)</td><td>- ₹${(subtotal - grandTotal).toFixed(2)}</td></tr>` : ''}
-      <tr class="grand"><td><strong>Grand Total</strong></td><td><strong>₹${grandTotal.toFixed(2)}</strong></td></tr>
+      <tr class="grand"><td><strong>Grand Total</strong></td><td><strong>₹${roundGrandTotal(grandTotal)}</strong></td></tr>
     </table>
   </div>
 

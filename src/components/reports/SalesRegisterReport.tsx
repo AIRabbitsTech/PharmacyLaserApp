@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FileDown, FileText, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import type { Sale } from '../../types';
-import { formatCurrency, formatDate } from '../../utils/helpers';
+import { formatCurrency, formatDate, formatGrandTotal } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
 import { exportSummaryToExcel } from '../../utils/exportExcel';
 import { exportToPdf } from '../../utils/exportPdf';
@@ -121,7 +121,7 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
                   {first.customer_name && <p className="text-sm text-gray-700 mt-0.5">{first.customer_name}</p>}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="font-bold text-gray-900">{formatCurrency(groupTotal)}</p>
+                  <p className="font-bold text-gray-900">{formatGrandTotal(groupTotal)}</p>
                   <div className="mt-1"><PaymentBadge mode={first.payment_mode} /></div>
                 </div>
               </div>
@@ -169,7 +169,7 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
                     </button>
                   </td>
                   <td className="table-cell text-gray-700 max-w-[180px] truncate">{first.customer_name || '—'}</td>
-                  <td className="table-cell text-right font-semibold tabular-nums">{formatCurrency(groupTotal)}</td>
+                  <td className="table-cell text-right font-semibold tabular-nums">{formatGrandTotal(groupTotal)}</td>
                   <td className="table-cell"><PaymentBadge mode={first.payment_mode} /></td>
                   <td className="table-cell text-center text-sm text-gray-500">{group.length}</td>
                 </tr>
@@ -182,7 +182,7 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
                 Total ({sortedGroups.length} invoices)
               </td>
               <td className="px-3 py-2.5 text-right font-bold text-gray-900 tabular-nums">
-                {formatCurrency(summary.total)}
+                {formatGrandTotal(summary.total)}
               </td>
               <td colSpan={2} />
             </tr>
