@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import type { Sale, SaleFormData } from '../types';
-import { todayISO, generateInvoiceNumber } from '../utils/helpers';
+import { todayISO, generateInvoiceNumber, roundGrandTotal } from '../utils/helpers';
 
 export function useSales() {
   const [loading, setLoading] = useState(false);
@@ -80,9 +80,19 @@ export function useSales() {
           ...(expiry ? { expiry_date: expiry } : {}),
         };
       });
+      // Adjust the last row so the sum of stored total_amounts equals the
+      // rounded grand total displayed on the invoice — closes the rounding gap.
+      const rawSum = records.reduce((s, r) => s + r.total_amount, 0);
+      const diff = parseFloat((roundGrandTotal(rawSum) - rawSum).toFixed(2));
+      const finalRecords = records.map((r, i) =>
+        i === records.length - 1 && diff !== 0
+          ? { ...r, total_amount: parseFloat((r.total_amount + diff).toFixed(2)) }
+          : r
+      );
+
       const { data, error: err } = await supabase
         .from('sales')
-        .insert(records)
+        .insert(finalRecords)
         .select();
       if (err) throw err;
       return data || [];
@@ -96,69 +106,6 @@ export function useSales() {
     }
   }, [getNextInvoiceNumber]);
 
-  const updateSale = useCallback(async (
-    id: string,
-    formData: SaleFormData,
-    invoiceNumber?: string,
-  ): Promise<Sale | null> => {
-    setLoading(true);
-    setError(null);
-    try {
-      const med = formData.medicines[0];
-      const mobile = formData.mobile_number.trim();
-      const batch = med.batch_number.trim();
-      const expiry = med.expiry_date.trim();
-      const mrpVal = parseFloat(med.mrp) || 0;
-      const discVal = parseFloat(med.discount) || 0;
-      const sellingRate = parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2));
-
-      // Invoice-level fields shared across all rows of the same invoice
-      const invoiceFields = {
-        payment_mode: formData.payment_mode,
-        customer_name: formData.customer_name.trim() || null,
-        mobile_number: mobile || null,
-        remarks: formData.remarks.trim() || null,
-      };
-
-      const payload = {
-        medicine_name: med.medicine_name.trim(),
-        quantity: parseFloat(med.quantity) || 0,
-        mrp: mrpVal,
-        selling_rate: sellingRate,
-        discount: discVal,
-        total_amount: parseFloat(med.total_amount) || 0,
-        ...invoiceFields,
-        ...(batch ? { batch_number: batch } : {}),
-        ...(expiry ? { expiry_date: expiry } : {}),
-      };
-
-      const { data, error: err } = await supabase
-        .from('sales')
-        .update(payload)
-        .eq('id', id)
-        .select()
-        .single();
-      if (err) throw err;
-
-      // Propagate invoice-level fields to sibling rows (same invoice, different medicine rows)
-      if (invoiceNumber) {
-        await supabase
-          .from('sales')
-          .update(invoiceFields)
-          .eq('invoice_number', invoiceNumber)
-          .neq('id', id);
-      }
-
-      return data;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update sale';
-      setError(msg);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const saveInvoiceEdit = useCallback(async (
     invoiceNumber: string,
     originalSaleDate: string,
@@ -170,6 +117,21 @@ export function useSales() {
     try {
       const mobile = formData.mobile_number.trim();
       const billDiscFactor = 1 - (parseFloat(formData.bill_discount) || 0) / 100;
+
+      // Pre-compute per-row amounts and apply rounding to the last row so the
+      // sum of stored total_amounts equals the rounded grand total charged.
+      const computedAmounts = formData.medicines.map((med) =>
+        parseFloat(((parseFloat(med.total_amount) || 0) * billDiscFactor).toFixed(2))
+      );
+      if (computedAmounts.length > 0) {
+        const rawSum = computedAmounts.reduce((s, a) => s + a, 0);
+        const diff = parseFloat((roundGrandTotal(rawSum) - rawSum).toFixed(2));
+        if (diff !== 0) {
+          const last = computedAmounts.length - 1;
+          computedAmounts[last] = parseFloat((computedAmounts[last] + diff).toFixed(2));
+        }
+      }
+
       const invoiceFields = {
         payment_mode: formData.payment_mode,
         customer_name: formData.customer_name.trim() || null,
@@ -186,10 +148,10 @@ export function useSales() {
       // 2. Update existing rows
       const billDiscVal = parseFloat(formData.bill_discount) || 0;
       const updated: Sale[] = [];
-      for (const med of formData.medicines.filter((m) => m.id)) {
+      for (const [idx, med] of formData.medicines.entries()) {
+        if (!med.id) continue;
         const mrpVal = parseFloat(med.mrp) || 0;
         const discVal = parseFloat(med.discount) || 0;
-        const rowTotal = parseFloat(med.total_amount) || 0;
         const { data, error: updErr } = await supabase
           .from('sales')
           .update({
@@ -199,7 +161,7 @@ export function useSales() {
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
             discount: discVal,
             bill_discount: billDiscVal,
-            total_amount: parseFloat((rowTotal * billDiscFactor).toFixed(2)),
+            total_amount: computedAmounts[idx],
             batch_number: med.batch_number.trim() || null,
             expiry_date: med.expiry_date.trim() || null,
             ...invoiceFields,
@@ -213,12 +175,13 @@ export function useSales() {
 
       // 3. Insert new rows (use original sale_date, not today)
       const inserted: Sale[] = [];
-      const newMeds = formData.medicines.filter((m) => !m.id);
+      const newMeds = formData.medicines
+        .map((med, idx) => ({ med, idx }))
+        .filter(({ med }) => !med.id);
       if (newMeds.length > 0) {
-        const records = newMeds.map((med) => {
+        const records = newMeds.map(({ med, idx }) => {
           const mrpVal = parseFloat(med.mrp) || 0;
           const discVal = parseFloat(med.discount) || 0;
-          const rowTotal = parseFloat(med.total_amount) || 0;
           const batch = med.batch_number.trim();
           const expiry = med.expiry_date.trim();
           return {
@@ -230,7 +193,7 @@ export function useSales() {
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
             discount: discVal,
             bill_discount: billDiscVal,
-            total_amount: parseFloat((rowTotal * billDiscFactor).toFixed(2)),
+            total_amount: computedAmounts[idx],
             ...invoiceFields,
             ...(batch ? { batch_number: batch } : {}),
             ...(expiry ? { expiry_date: expiry } : {}),
@@ -270,22 +233,6 @@ export function useSales() {
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to update customer info';
-      setError(msg);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const deleteSale = useCallback(async (id: string): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { error: err } = await supabase.from('sales').delete().eq('id', id);
-      if (err) throw err;
-      return true;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete sale';
       setError(msg);
       return false;
     } finally {
@@ -357,10 +304,8 @@ export function useSales() {
     fetchSalesByDateRange,
     fetchAllSales,
     createSale,
-    updateSale,
     saveInvoiceEdit,
     updateInvoiceCustomer,
-    deleteSale,
     getNextInvoiceNumber,
     bulkCreateSales,
   };

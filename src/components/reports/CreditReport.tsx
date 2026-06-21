@@ -1,12 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, User, Phone, CreditCard } from 'lucide-react';
 import type { Sale } from '../../types';
-import { formatCurrency, formatDate } from '../../utils/helpers';
+import { formatGrandTotal, formatDate } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
+
+interface CreditPayment {
+  customer_name: string;
+  amount: number;
+}
 
 interface Props {
   sales: Sale[];
   allSales: Sale[];
+  creditPayments: CreditPayment[];
 }
 
 interface InvoiceSummary {
@@ -26,7 +32,7 @@ interface CustomerCreditRow {
   lastDate: string;
 }
 
-function buildCreditRows(sales: Sale[]): CustomerCreditRow[] {
+function buildCreditRows(sales: Sale[], payments: CreditPayment[]): CustomerCreditRow[] {
   const creditSales = sales.filter((s) => s.payment_mode === 'Credit');
 
   // Group by invoice first
@@ -54,19 +60,33 @@ function buildCreditRows(sales: Sale[]): CustomerCreditRow[] {
     if (first.sale_date > row.lastDate) row.lastDate = first.sale_date;
   }
 
-  return [...custMap.values()].sort((a, b) => b.total - a.total);
+  // Build payments map keyed by customer name (same approach as Dashboard)
+  const paymentsMap = new Map<string, number>();
+  for (const p of payments) {
+    const key = (p.customer_name || '').trim().toLowerCase();
+    paymentsMap.set(key, (paymentsMap.get(key) || 0) + p.amount);
+  }
+
+  // Subtract payments and remove fully-paid customers
+  return [...custMap.values()]
+    .map((row) => ({
+      ...row,
+      total: Math.max(0, row.total - (paymentsMap.get(row.name.toLowerCase()) || 0)),
+    }))
+    .filter((row) => row.total > 0)
+    .sort((a, b) => b.total - a.total);
 }
 
-export default function CreditReport({ sales, allSales }: Props) {
+export default function CreditReport({ sales, allSales, creditPayments }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
 
-  // Current period credit rows
-  const periodRows = useMemo(() => buildCreditRows(sales), [sales]);
+  // Current period credit rows (net of all payments)
+  const periodRows = useMemo(() => buildCreditRows(sales, creditPayments), [sales, creditPayments]);
   const periodTotal = useMemo(() => periodRows.reduce((s, r) => s + r.total, 0), [periodRows]);
 
-  // All-time credit rows
-  const allTimeRows = useMemo(() => buildCreditRows(allSales), [allSales]);
+  // All-time credit rows (net of all payments)
+  const allTimeRows = useMemo(() => buildCreditRows(allSales, creditPayments), [allSales, creditPayments]);
   const allTimeTotal = useMemo(() => allTimeRows.reduce((s, r) => s + r.total, 0), [allTimeRows]);
 
   const [view, setView] = useState<'period' | 'alltime'>('alltime');
@@ -111,7 +131,7 @@ export default function CreditReport({ sales, allSales }: Props) {
             <p className="text-xs font-bold text-orange-600 uppercase tracking-wide">Total Credit Outstanding</p>
             <p className="text-xs text-orange-400 mt-0.5">{rows.length} customers · {rows.reduce((s, r) => s + r.invoices.length, 0)} invoices</p>
           </div>
-          <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatCurrency(grandTotal)}</p>
+          <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatGrandTotal(grandTotal)}</p>
         </div>
 
         {/* Customer rows */}
@@ -157,7 +177,7 @@ export default function CreditReport({ sales, allSales }: Props) {
                       </td>
                       <td className="table-cell text-center text-gray-600 font-medium">{row.invoices.length}</td>
                       <td className="table-cell text-right font-bold text-orange-700 tabular-nums text-base">
-                        {formatCurrency(row.total)}
+                        {formatGrandTotal(row.total)}
                       </td>
                       <td className="table-cell text-xs text-gray-500">{formatDate(row.lastDate)}</td>
                     </tr>
@@ -189,7 +209,7 @@ export default function CreditReport({ sales, allSales }: Props) {
                                     <td className="px-3 py-2 text-xs text-gray-500">{formatDate(inv.date)}</td>
                                     <td className="px-3 py-2 text-center text-xs text-gray-500">{inv.medicines}</td>
                                     <td className="px-3 py-2 text-right font-semibold text-orange-700 tabular-nums">
-                                      {formatCurrency(inv.amount)}
+                                      {formatGrandTotal(inv.amount)}
                                     </td>
                                   </tr>
                                 ))}
@@ -209,7 +229,7 @@ export default function CreditReport({ sales, allSales }: Props) {
                   Total ({rows.length} customers)
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold text-orange-700 tabular-nums text-base">
-                  {formatCurrency(grandTotal)}
+                  {formatGrandTotal(grandTotal)}
                 </td>
                 <td />
               </tr>

@@ -45,23 +45,14 @@ create index if not exists sales_expiry_date_idx      on public.sales (expiry_da
 -- ============================================================
 alter table public.sales enable row level security;
 
--- Policy: Allow all operations for anonymous/authenticated users
--- For a single-user pharmacy app, we allow all access.
--- In production, you can restrict to authenticated users only.
-
-create policy "Allow all access to sales"
+-- Policy: Require authentication for all operations.
+-- Only users logged in via Supabase Auth can read or write data.
+create policy "Allow authenticated access to sales"
   on public.sales
   for all
+  to authenticated
   using (true)
   with check (true);
-
--- If you want to restrict to authenticated users only, use:
--- create policy "Allow authenticated users"
---   on public.sales
---   for all
---   to authenticated
---   using (true)
---   with check (true);
 
 -- ============================================================
 -- Credit Payments Table
@@ -82,11 +73,27 @@ create index if not exists credit_payments_paid_date_idx on public.credit_paymen
 
 alter table public.credit_payments enable row level security;
 
-create policy "Allow all access to credit_payments"
+create policy "Allow authenticated access to credit_payments"
   on public.credit_payments
   for all
+  to authenticated
   using (true)
   with check (true);
+
+-- ============================================================
+-- RLS Migration (run this in Supabase SQL Editor if tables
+-- already exist with the old permissive policies)
+-- ============================================================
+-- drop policy if exists "Allow all access to sales" on public.sales;
+-- drop policy if exists "Allow all access to credit_payments" on public.credit_payments;
+--
+-- create policy "Allow authenticated access to sales"
+--   on public.sales for all to authenticated
+--   using (true) with check (true);
+--
+-- create policy "Allow authenticated access to credit_payments"
+--   on public.credit_payments for all to authenticated
+--   using (true) with check (true);
 
 -- ============================================================
 -- Sample Data (optional - remove in production)

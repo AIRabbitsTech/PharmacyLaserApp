@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, List, BarChart3, Upload, Menu, X, Pill, UserCircle } from 'lucide-react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, PlusCircle, List, BarChart3, Upload, Menu, X, Pill, UserCircle, LogOut } from 'lucide-react';
 import { getPharmacyProfile } from '../hooks/usePharmacyProfile';
+import { useAuth } from '../hooks/useAuth';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -15,6 +16,13 @@ const navItems = [
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { name } = getPharmacyProfile();
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="flex min-h-screen bg-slate-50">
@@ -70,7 +78,14 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="px-5 py-4 border-t border-blue-800">
+        <div className="px-5 py-4 border-t border-blue-800 space-y-3">
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 text-blue-300 hover:text-white text-sm w-full transition-colors"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
           <p className="text-blue-400 text-xs">© 2026 Pharmacy Ledger</p>
         </div>
       </aside>
@@ -95,6 +110,7 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
     </div>
   );
 }

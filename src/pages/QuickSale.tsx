@@ -6,7 +6,7 @@ import SaleForm from '../components/SaleForm';
 import InvoiceModal from '../components/InvoiceModal';
 import { useSales } from '../hooks/useSales';
 import { useSuggestions } from '../hooks/useSuggestions';
-import { formatCurrency } from '../utils/helpers';
+import { formatGrandTotal } from '../utils/helpers';
 import type { Sale, SaleFormData, MedicineItem } from '../types';
 
 const EMPTY_MEDICINE: MedicineItem = {
@@ -254,7 +254,7 @@ export default function QuickSale() {
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                 <span className="font-semibold text-gray-700">Grand Total</span>
-                <span className="text-xl font-bold text-blue-700">{formatCurrency(grandTotal)}</span>
+                <span className="text-xl font-bold text-blue-700">{formatGrandTotal(grandTotal)}</span>
               </div>
             </div>
 
