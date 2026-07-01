@@ -16,6 +16,10 @@ dist-ssr
 .env
 .env.*
 
+# Database backups
+*.dump
+backups/
+
 # Test reports (generated)
 playwright-report/
 playwright-report-v2/
