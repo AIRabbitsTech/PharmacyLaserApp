@@ -56,7 +56,7 @@ function validate(data: SaleFormData): string | null {
 
 export default function QuickSale() {
   const { createSale, loading } = useSales();
-  const { customers, mobiles, medicines, medicineDetails, mobileToCustomer } = useSuggestions();
+  const { customers, mobiles, medicines, medicineDetails, mobileToCustomer, mobileOwners } = useSuggestions();
   const [searchParams] = useSearchParams();
   const [formData, setFormData] = useState<SaleFormData>(
     makeEmptyForm(searchParams.get('customer') || '', searchParams.get('mobile') || ''),
@@ -72,7 +72,9 @@ export default function QuickSale() {
       setFormData((prev) => ({
         ...prev,
         mobile_number: value,
-        ...(matched ? { customer_name: matched } : {}),
+        // Autofill the name only when it's empty — never overwrite a name the
+        // operator already typed (a shared number must not silently rename them).
+        ...(matched && !prev.customer_name.trim() ? { customer_name: matched } : {}),
       }));
     } else {
       setFormData((prev) => ({ ...prev, [field]: value }));
@@ -212,6 +214,7 @@ export default function QuickSale() {
           customerSuggestions={customers}
           mobileSuggestions={mobiles}
           medicineSuggestions={medicines}
+          mobileOwners={mobileOwners}
           onMedicineNameSelect={handleMedicineNameSelect}
         />
       </div>

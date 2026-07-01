@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import type { Sale, SaleFormData } from '../types';
 import { todayISO, generateInvoiceNumber, roundGrandTotal } from '../utils/helpers';
+import { normalizeMedicineName } from '../utils/medicine';
 
 export function useSales() {
   const [loading, setLoading] = useState(false);
@@ -65,7 +66,7 @@ export function useSales() {
         return {
           sale_date: todayISO(),
           invoice_number: invoiceNumber,
-          medicine_name: med.medicine_name.trim(),
+          medicine_name: normalizeMedicineName(med.medicine_name),
           quantity: parseFloat(med.quantity) || 0,
           mrp: mrpVal,
           selling_rate: sellingRate,
@@ -155,7 +156,7 @@ export function useSales() {
         const { data, error: updErr } = await supabase
           .from('sales')
           .update({
-            medicine_name: med.medicine_name.trim(),
+            medicine_name: normalizeMedicineName(med.medicine_name),
             quantity: parseFloat(med.quantity) || 0,
             mrp: mrpVal,
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
@@ -187,7 +188,7 @@ export function useSales() {
           return {
             sale_date: originalSaleDate,
             invoice_number: invoiceNumber,
-            medicine_name: med.medicine_name.trim(),
+            medicine_name: normalizeMedicineName(med.medicine_name),
             quantity: parseFloat(med.quantity) || 0,
             mrp: mrpVal,
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
