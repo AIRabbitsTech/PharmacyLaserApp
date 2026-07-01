@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { useSales } from '../hooks/useSales';
+import { useCustomerOutstanding, type OutstandingCustomerRow } from '../hooks/useCustomerOutstanding';
 import { supabase } from '../utils/supabase';
 import type { Sale, ReportFilters } from '../types';
 import { getDateRange, todayISO } from '../utils/helpers';
@@ -48,12 +49,14 @@ const TABS: { id: TabId; label: string; icon: React.ElementType; shortLabel: str
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Reports() {
   const { fetchSalesByDateRange, loading } = useSales();
+  const { fetchOutstanding } = useCustomerOutstanding();
 
   const today = todayISO();
   const [filters, setFilters] = useState<ReportFilters>({ preset: 'today', startDate: today, endDate: today });
   const [sales, setSales] = useState<Sale[]>([]);
   const [allSales, setAllSales] = useState<Sale[]>([]);
-  const [creditPayments, setCreditPayments] = useState<{ customer_name: string; amount: number }[]>([]);
+  const [creditPayments, setCreditPayments] = useState<{ customer_name: string; mobile_number: string | null; amount: number }[]>([]);
+  const [outstandingRows, setOutstandingRows] = useState<OutstandingCustomerRow[] | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('register');
 
   // Load date-filtered sales
@@ -65,21 +68,41 @@ export default function Reports() {
 
   // Load all-time sales and all credit payments once.
   useEffect(() => {
+    // PostgREST caps a single response at 1000 rows, which silently truncated
+    // the all-time dataset and undercounted the Credit Ledger. Page through to
+    // fetch every row. Order by the unique `id` so range pagination is stable —
+    // ordering by a non-unique column (e.g. created_at) can duplicate or drop
+    // rows at page boundaries.
+    const fetchAllSales = async (): Promise<Sale[]> => {
+      const PAGE = 1000;
+      const all: Sale[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from('sales')
+          .select('*')
+          .gte('sale_date', '2020-01-01')
+          .lte('sale_date', todayISO())
+          .order('id', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error || !data) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+      }
+      return all;
+    };
+
     Promise.all([
-      supabase
-        .from('sales')
-        .select('*')
-        .gte('sale_date', '2020-01-01')
-        .lte('sale_date', todayISO())
-        .order('created_at', { ascending: false }),
+      fetchAllSales(),
       supabase
         .from('credit_payments')
-        .select('customer_name, amount'),
-    ]).then(([salesRes, paymentsRes]) => {
-      setAllSales(salesRes.data || []);
+        .select('customer_name, mobile_number, amount'),
+      fetchOutstanding(),
+    ]).then(([allSalesData, paymentsRes, outstanding]) => {
+      setAllSales(allSalesData);
       setCreditPayments(paymentsRes.data || []);
+      setOutstandingRows(outstanding);
     });
-  }, []);
+  }, [fetchOutstanding]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadSales(filters); }, []);
@@ -223,7 +246,7 @@ export default function Reports() {
               <ExpiryReport />
             )}
             {activeTab === 'credit' && (
-              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} />
+              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} outstandingRows={outstandingRows} />
             )}
             {activeTab === 'customers' && (
               <CustomerReport sales={sales} allSales={allSales} />

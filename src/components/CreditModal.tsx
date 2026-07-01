@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { formatGrandTotal, roundGrandTotal, todayISO } from '../utils/helpers';
 
 export interface CustomerCredit {
+  customer_id?: string | null;
   name: string;
   mobile: string;
   amount: number;
