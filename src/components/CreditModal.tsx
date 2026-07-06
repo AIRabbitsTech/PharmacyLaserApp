@@ -21,6 +21,9 @@ interface Props {
   customers: CustomerCredit[];
   total: number;
   title?: string;
+  subtitle?: string;
+  totalLabel?: string;
+  amountLabel?: string;
   onClose: () => void;
   onPayOff?: (
     customer: CustomerCredit,
@@ -35,6 +38,9 @@ export default function CreditModal({
   customers,
   total,
   title = 'Credit Outstanding',
+  subtitle = 'Net outstanding per customer',
+  totalLabel = 'Total Outstanding',
+  amountLabel = 'Outstanding',
   onClose,
   onPayOff,
 }: Props) {
@@ -51,6 +57,13 @@ export default function CreditModal({
   const handleConfirm = async (c: CustomerCredit) => {
     const amt = parseFloat(form.amount);
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
+    // A payment can't exceed what the customer owes (would over-pay and be lost
+    // at the outstanding view's zero floor). Cap at the displayed outstanding.
+    const maxPay = roundGrandTotal(c.amount);
+    if (amt > maxPay + 0.001) {
+      toast.error(`Payment can't exceed outstanding ${formatGrandTotal(maxPay)}`);
+      return;
+    }
     if (!onPayOff) return;
     setSaving(true);
     await onPayOff(c, amt, form.mode, form.date, form.remarks);
@@ -72,7 +85,7 @@ export default function CreditModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-base font-bold text-gray-900">{title}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Net outstanding per customer</p>
+            <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
           </div>
           <button
             onClick={onClose}
@@ -110,12 +123,15 @@ export default function CreditModal({
                 <tr>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">#</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Outstanding</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{amountLabel}</th>
                   {onPayOff && <th className="px-5 py-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filtered.map((c, i) => (
+                {filtered.map((c, i) => {
+                  const maxPay = roundGrandTotal(c.amount);
+                  const overpay = (parseFloat(form.amount) || 0) > maxPay + 0.001;
+                  return (
                   <Fragment key={`${c.name}-${i}`}>
                     <tr className="hover:bg-gray-50 transition-colors">
                       <td className="px-5 py-3.5 text-sm text-gray-400 font-medium">{i + 1}</td>
@@ -159,14 +175,18 @@ export default function CreditModal({
                       <tr>
                         <td colSpan={colSpan} className="px-5 py-3 bg-green-50 border-l-4 border-green-400">
                           <div className="space-y-2.5">
-                            <p className="text-xs font-semibold text-green-700">Record Payment — {c.name}</p>
+                            <p className="text-xs font-semibold text-green-700">
+                              Record Payment — {c.name}
+                              <span className="font-normal text-gray-500"> · owes {formatGrandTotal(maxPay)}</span>
+                            </p>
                             <div className="flex gap-2 flex-wrap items-center">
                               <input
                                 type="number"
-                                className="input-field py-1.5 text-sm w-32"
+                                className={`input-field py-1.5 text-sm w-32 ${overpay ? 'border-red-400 focus:ring-red-200' : ''}`}
                                 placeholder="Amount"
                                 value={form.amount}
                                 min="0.01"
+                                max={maxPay}
                                 step="0.01"
                                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                               />
@@ -194,6 +214,11 @@ export default function CreditModal({
                                 onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                               />
                             </div>
+                            {overpay && (
+                              <p className="text-xs text-red-600">
+                                Amount exceeds outstanding {formatGrandTotal(maxPay)} — a payment can't be more than what's owed.
+                              </p>
+                            )}
                             <div className="flex gap-2 items-center">
                               <input
                                 type="text"
@@ -204,7 +229,7 @@ export default function CreditModal({
                               />
                               <button
                                 onClick={() => handleConfirm(c)}
-                                disabled={saving}
+                                disabled={saving || overpay}
                                 className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
                               >
                                 <CheckCircle size={15} />
@@ -216,7 +241,8 @@ export default function CreditModal({
                       </tr>
                     )}
                   </Fragment>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -224,7 +250,7 @@ export default function CreditModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-orange-50 rounded-b-2xl">
-          <span className="text-sm font-semibold text-gray-700">Total Outstanding</span>
+          <span className="text-sm font-semibold text-gray-700">{totalLabel}</span>
           <span className="text-lg font-bold text-orange-600">{formatGrandTotal(total)}</span>
         </div>
       </div>

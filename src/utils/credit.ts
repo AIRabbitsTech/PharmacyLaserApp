@@ -10,6 +10,15 @@ export interface CreditPaymentLike {
   amount: number;
 }
 
+// A sales return, for the client-side fallback. Kept in lockstep with the
+// customer_outstanding SQL view: only 'Credit' returns reduce outstanding.
+export interface ReturnLike {
+  customer_name?: string | null;
+  mobile_number?: string | null;
+  refund_mode: string;
+  refund_amount: number;
+}
+
 // Minimal shape needed to compute outstanding. Lets callers pass either a full
 // Sale[] (Reports) or a lightweight column projection (Dashboard).
 export interface SaleLike {
@@ -49,6 +58,7 @@ export function customerKey(name?: string | null, mobile?: string | null): strin
 export function computeOutstandingByCustomer<T extends SaleLike>(
   sales: T[],
   payments: CreditPaymentLike[],
+  returns: ReturnLike[] = [],
 ): OutstandingCustomer<T>[] {
   const creditSales = sales.filter((s) => s.payment_mode === 'Credit');
 
@@ -84,8 +94,20 @@ export function computeOutstandingByCustomer<T extends SaleLike>(
     paymentsMap.set(key, (paymentsMap.get(key) || 0) + p.amount);
   }
 
+  // Sum Credit-mode returns under the same key. Cash/UPI returns move real
+  // money and never touch outstanding — mirrors the SQL view's WHERE clause.
+  const returnsMap = new Map<string, number>();
+  for (const r of returns) {
+    if (r.refund_mode !== 'Credit') continue;
+    const key = customerKey(r.customer_name, r.mobile_number);
+    returnsMap.set(key, (returnsMap.get(key) || 0) + r.refund_amount);
+  }
+
   return [...custMap.values()]
-    .map((row) => ({ ...row, total: Math.max(0, row.total - (paymentsMap.get(row.key) || 0)) }))
+    .map((row) => ({
+      ...row,
+      total: Math.max(0, row.total - (paymentsMap.get(row.key) || 0) - (returnsMap.get(row.key) || 0)),
+    }))
     .filter((row) => row.total > 0)
     .sort((a, b) => b.total - a.total);
 }

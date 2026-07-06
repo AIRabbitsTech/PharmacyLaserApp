@@ -100,12 +100,12 @@ commit;
 -- VERIFICATION (run after)
 -- ============================================================
 -- 1. New named sale gets a customer_id automatically (then clean up):
---   insert into public.sales
---     (invoice_number, medicine_name, quantity, mrp, selling_rate,
---      total_amount, payment_mode, customer_name, mobile_number)
---   values ('TRIG-TEST', 'TRIGGER CHECK', 1, 1, 1, 1, 'Credit',
---           'TRIGGER TEST CUSTOMER', '0000000000')
---   returning customer_id;   -- expect NON-NULL
+  --   insert into public.sales
+  --     (invoice_number, medicine_name, quantity, mrp, selling_rate,
+  --      total_amount, payment_mode, customer_name, mobile_number)
+  --   values ('TRIG-TEST', 'TRIGGER CHECK', 1, 1, 1, 1, 'Credit',
+  --           'TRIGGER TEST CUSTOMER', '0000000000')
+  --   returning customer_id;   -- expect NON-NULL
 --   delete from public.sales where invoice_number = 'TRIG-TEST';
 --   delete from public.customers where name_norm = 'trigger test customer';
 --
