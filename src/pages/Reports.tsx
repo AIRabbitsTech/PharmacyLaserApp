@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   FileText, TrendingUp, Package, AlertTriangle,
-  CreditCard, Users, Percent, Calendar,
+  CreditCard, Users, Percent, Calendar, Search, X,
 } from 'lucide-react';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { useSales } from '../hooks/useSales';
 import { useCustomerOutstanding, type OutstandingCustomerRow } from '../hooks/useCustomerOutstanding';
+import { useSalesReturns } from '../hooks/useSalesReturns';
 import { supabase } from '../utils/supabase';
-import type { Sale, ReportFilters } from '../types';
+import type { Sale, ReportFilters, SalesReturn } from '../types';
 import { getDateRange, todayISO } from '../utils/helpers';
 import SalesRegisterReport from '../components/reports/SalesRegisterReport';
 import RevenueReport from '../components/reports/RevenueReport';
@@ -46,25 +47,42 @@ const TABS: { id: TabId; label: string; icon: React.ElementType; shortLabel: str
   { id: 'discounts', label: 'Discounts',        shortLabel: 'Discounts', icon: Percent      },
 ];
 
+// Per-tab search placeholders. A tab absent here (Revenue) shows no search box.
+const SEARCH_PLACEHOLDERS: Partial<Record<TabId, string>> = {
+  register:  'Search invoice, customer, mobile or medicine…',
+  medicines: 'Search medicine name…',
+  expiry:    'Search medicine or batch…',
+  credit:    'Search customer name or mobile…',
+  customers: 'Search customer name or mobile…',
+  discounts: 'Search medicine name…',
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Reports() {
   const { fetchSalesByDateRange, loading } = useSales();
   const { fetchOutstanding } = useCustomerOutstanding();
+  const { fetchReturnsByDateRange } = useSalesReturns();
 
   const today = todayISO();
   const [filters, setFilters] = useState<ReportFilters>({ preset: 'today', startDate: today, endDate: today });
   const [sales, setSales] = useState<Sale[]>([]);
+  const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [allSales, setAllSales] = useState<Sale[]>([]);
   const [creditPayments, setCreditPayments] = useState<{ customer_name: string; mobile_number: string | null; amount: number }[]>([]);
   const [outstandingRows, setOutstandingRows] = useState<OutstandingCustomerRow[] | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('register');
+  const [search, setSearch] = useState('');
 
   // Load date-filtered sales
   const loadSales = useCallback(async (f: ReportFilters) => {
     const range = getDateRange(f.preset, f.startDate, f.endDate);
-    const data = await fetchSalesByDateRange(range.start, range.end);
+    const [data, returnsData] = await Promise.all([
+      fetchSalesByDateRange(range.start, range.end),
+      fetchReturnsByDateRange(range.start, range.end),
+    ]);
     setSales(data);
-  }, [fetchSalesByDateRange]);
+    setReturns(returnsData);
+  }, [fetchSalesByDateRange, fetchReturnsByDateRange]);
 
   // Load all-time sales and all credit payments once.
   useEffect(() => {
@@ -231,28 +249,52 @@ export default function Reports() {
             })}
           </div>
 
+          {/* Per-tab search — hidden on Revenue (no list to filter) */}
+          {SEARCH_PLACEHOLDERS[activeTab] && (
+            <div className="px-5 pt-4">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={SEARCH_PLACEHOLDERS[activeTab]}
+                  className="w-full pl-9 pr-9 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-colors"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Tab content */}
           <div className="p-5">
             {activeTab === 'register' && (
-              <SalesRegisterReport sales={sales} dateLabel={dateLabel} startDate={filters.startDate} />
+              <SalesRegisterReport sales={sales} returns={returns} dateLabel={dateLabel} startDate={filters.startDate} search={search} />
             )}
             {activeTab === 'revenue' && (
-              <RevenueReport sales={sales} />
+              <RevenueReport sales={sales} returns={returns} />
             )}
             {activeTab === 'medicines' && (
-              <MedicinesReport sales={sales} />
+              <MedicinesReport sales={sales} search={search} />
             )}
             {activeTab === 'expiry' && (
-              <ExpiryReport />
+              <ExpiryReport search={search} />
             )}
             {activeTab === 'credit' && (
-              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} outstandingRows={outstandingRows} />
+              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} outstandingRows={outstandingRows} search={search} />
             )}
             {activeTab === 'customers' && (
-              <CustomerReport sales={sales} allSales={allSales} />
+              <CustomerReport sales={sales} allSales={allSales} search={search} />
             )}
             {activeTab === 'discounts' && (
-              <DiscountReport sales={sales} />
+              <DiscountReport sales={sales} search={search} />
             )}
 
             {/* Empty state for date-filtered tabs */}

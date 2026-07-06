@@ -5,6 +5,7 @@ import { formatCurrency } from '../../utils/helpers';
 
 interface Props {
   sales: Sale[];
+  search?: string;
 }
 
 interface DiscountRow {
@@ -54,7 +55,7 @@ function buildRows(sales: Sale[]): DiscountRow[] {
     .filter((r) => r.gross > 0);
 }
 
-export default function DiscountReport({ sales }: Props) {
+export default function DiscountReport({ sales, search = '' }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('discountPct');
   const [showHighOnly, setShowHighOnly] = useState(false);
 
@@ -70,9 +71,11 @@ export default function DiscountReport({ sales }: Props) {
   const highDiscountCount = allRows.filter((r) => r.discountPct > 10).length;
 
   const sorted = useMemo(() => {
-    const copy = showHighOnly ? allRows.filter((r) => r.discountPct > 10) : [...allRows];
+    const q = search.trim().toLowerCase();
+    let copy = showHighOnly ? allRows.filter((r) => r.discountPct > 10) : [...allRows];
+    if (q) copy = copy.filter((r) => r.name.toLowerCase().includes(q));
     return copy.sort((a, b) => b[sortKey] - a[sortKey]);
-  }, [allRows, sortKey, showHighOnly]);
+  }, [allRows, sortKey, showHighOnly, search]);
 
   if (sales.length === 0) {
     return <p className="text-center py-16 text-gray-400 text-sm">No sales data for this period.</p>;
@@ -168,6 +171,11 @@ export default function DiscountReport({ sales }: Props) {
             </tr>
           </thead>
           <tbody>
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={7} className="text-center py-10 text-gray-400 text-sm">No medicines match "{search}"</td>
+              </tr>
+            )}
             {sorted.map((row, idx) => {
               const isHigh = row.discountPct > 10;
               return (

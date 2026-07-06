@@ -2,19 +2,21 @@ import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Search, X, Calendar, Pencil, Printer } from 'lucide-react';
 import { useSales } from '../hooks/useSales';
+import { useProgressiveList } from '../hooks/useProgressiveList';
 import type { Sale } from '../types';
 import { formatCurrency, formatDate, todayISO, getDateRange } from '../utils/helpers';
 import InvoiceModal from '../components/InvoiceModal';
 import InvoiceEditOverlay from '../components/InvoiceEditOverlay';
 import { printInvoice } from '../utils/printInvoice';
 
-type DatePreset = 'today' | 'yesterday' | 'last_7_days' | 'this_month' | 'custom';
+type DatePreset = 'today' | 'yesterday' | 'last_7_days' | 'this_month' | 'last_month' | 'custom';
 
 const PRESETS: { key: DatePreset; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
   { key: 'last_7_days', label: 'Last 7 Days' },
   { key: 'this_month', label: 'This Month' },
+  { key: 'last_month', label: 'Last Month' },
   { key: 'custom', label: 'Custom' },
 ];
 
@@ -23,6 +25,7 @@ const PAGE_TITLES: Record<DatePreset, string> = {
   yesterday: "Yesterday's Sales",
   last_7_days: 'Sales · Last 7 Days',
   this_month: 'Sales · This Month',
+  last_month: 'Sales · Last Month',
   custom: 'Sales',
 };
 
@@ -31,6 +34,7 @@ const EMPTY_MESSAGES: Record<DatePreset, string> = {
   yesterday: 'No sales recorded yesterday',
   last_7_days: 'No sales in the last 7 days',
   this_month: 'No sales this month',
+  last_month: 'No sales last month',
   custom: 'No sales in the selected date range',
 };
 
@@ -78,6 +82,13 @@ export default function SalesList() {
   });
 
   const filteredGroups = useMemo(() => groupByInvoice(filtered), [filtered]);
+
+  // Lazy render: show 150 invoices, reveal more as the user scrolls. Reset the
+  // window whenever the date range or search term changes.
+  const { shown: shownGroups, hasMore, sentinelRef, shownCount, total } = useProgressiveList(
+    filteredGroups,
+    `${datePreset}|${rangeStart}|${rangeEnd}|${search}`,
+  );
 
   const totalAmount = filtered.reduce((s, x) => s + x.total_amount, 0);
 
@@ -215,7 +226,7 @@ export default function SalesList() {
       {/* Mobile Cards */}
       {!loading && filteredGroups.length > 0 && (
         <div className="space-y-3 sm:hidden">
-          {filteredGroups.map((group) => {
+          {shownGroups.map((group) => {
             const first = group[0];
             const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
             return (
@@ -278,7 +289,7 @@ export default function SalesList() {
               </tr>
             </thead>
             <tbody>
-              {filteredGroups.map((group) => {
+              {shownGroups.map((group) => {
                 const first = group[0];
                 const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
                 return (
@@ -338,6 +349,15 @@ export default function SalesList() {
         </div>
       )}
 
+      {/* Lazy-load sentinel + progress indicator */}
+      {!loading && filteredGroups.length > 0 && (
+        <div ref={sentinelRef} className="py-3 text-center text-xs text-gray-400">
+          {hasMore
+            ? `Showing ${shownCount} of ${total} invoices — scroll for more…`
+            : total > 150 && `All ${total} invoices shown`}
+        </div>
+      )}
+
       {/* Full Invoice Edit Overlay */}
       {editingInvoiceSales && (
         <InvoiceEditOverlay
@@ -353,6 +373,7 @@ export default function SalesList() {
           sales={invoiceModalSales}
           onClose={() => setSelectedInvoiceNumber(null)}
           onUpdateCustomer={handleUpdateCustomer}
+          allowReturn
         />
       )}
 

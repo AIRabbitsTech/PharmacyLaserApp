@@ -45,7 +45,11 @@ const RISK_CONFIG: Record<RiskLevel, { label: string; color: string; bg: string;
   watch: { label: '3–6 Months', color: 'text-blue-700', bg: 'bg-blue-100 text-blue-700', icon: <CheckCircle size={14} />, order: 3 },
 };
 
-export default function ExpiryReport() {
+interface Props {
+  search?: string;
+}
+
+export default function ExpiryReport({ search = '' }: Props) {
   const [records, setRecords] = useState<ExpiryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterRisk, setFilterRisk] = useState<RiskLevel | 'all'>('all');
@@ -102,7 +106,12 @@ export default function ExpiryReport() {
     return c;
   }, [rows]);
 
-  const visible = filterRisk === 'all' ? rows : rows.filter((r) => r.risk === filterRisk);
+  const visible = useMemo(() => {
+    const byRisk = filterRisk === 'all' ? rows : rows.filter((r) => r.risk === filterRisk);
+    const q = search.trim().toLowerCase();
+    if (!q) return byRisk;
+    return byRisk.filter((r) => r.medicine.toLowerCase().includes(q) || r.batch.toLowerCase().includes(q));
+  }, [rows, filterRisk, search]);
 
   if (loading) {
     return <p className="text-center py-16 text-gray-400 text-sm">Loading expiry data…</p>;
@@ -177,6 +186,11 @@ export default function ExpiryReport() {
               </tr>
             </thead>
             <tbody>
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-gray-400 text-sm">No medicines match "{search}"</td>
+                </tr>
+              )}
               {visible.map((row, idx) => {
                 const cfg = RISK_CONFIG[row.risk];
                 return (

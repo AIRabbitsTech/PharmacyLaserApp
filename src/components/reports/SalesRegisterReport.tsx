@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react';
 import { FileDown, FileText, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import type { Sale } from '../../types';
-import { formatDate, formatGrandTotal } from '../../utils/helpers';
+import type { Sale, SalesReturn } from '../../types';
+import { formatDate, formatGrandTotal, formatCurrency } from '../../utils/helpers';
+import { useProgressiveList } from '../../hooks/useProgressiveList';
 import InvoiceModal from '../InvoiceModal';
 import { exportSummaryToExcel } from '../../utils/exportExcel';
 import { exportToPdf } from '../../utils/exportPdf';
 
 interface Props {
   sales: Sale[];
+  returns?: SalesReturn[];
   dateLabel: string;
   startDate: string;
+  search?: string;
 }
 
 function groupByInvoice(sales: Sale[]): Sale[][] {
@@ -41,7 +44,7 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey | 
     : <ChevronDown size={13} className="text-blue-600 inline ml-1" />;
 }
 
-export default function SalesRegisterReport({ sales, dateLabel, startDate }: Props) {
+export default function SalesRegisterReport({ sales, returns = [], dateLabel, startDate, search = '' }: Props) {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -57,9 +60,23 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
 
   const invoiceGroups = useMemo(() => groupByInvoice(sales), [sales]);
 
+  // Filter by invoice / customer / mobile / any medicine line in the group.
+  const searchedGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return invoiceGroups;
+    return invoiceGroups.filter((g) =>
+      g.some((s) =>
+        s.medicine_name.toLowerCase().includes(q) ||
+        s.invoice_number.toLowerCase().includes(q) ||
+        (s.customer_name || '').toLowerCase().includes(q) ||
+        (s.mobile_number || '').includes(q),
+      ),
+    );
+  }, [invoiceGroups, search]);
+
   const sortedGroups = useMemo(() => {
-    if (!sortKey) return invoiceGroups;
-    return [...invoiceGroups].sort((a, b) => {
+    if (!sortKey) return searchedGroups;
+    return [...searchedGroups].sort((a, b) => {
       const fa = a[0], fb = b[0];
       const aTotal = a.reduce((s, x) => s + x.total_amount, 0);
       const bTotal = b.reduce((s, x) => s + x.total_amount, 0);
@@ -72,7 +89,13 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
       else if (sortKey === 'items') cmp = a.length - b.length;
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [invoiceGroups, sortKey, sortDir]);
+  }, [searchedGroups, sortKey, sortDir]);
+
+  // Total for the footer reflects what's listed (filtered by search when active).
+  const shownTotal = useMemo(
+    () => sortedGroups.reduce((s, g) => s + g.reduce((a, x) => a + x.total_amount, 0), 0),
+    [sortedGroups],
+  );
 
   const summary = useMemo(() => ({
     total: sales.reduce((s, x) => s + x.total_amount, 0),
@@ -80,6 +103,15 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
     upi: sales.filter((x) => x.payment_mode === 'UPI').reduce((s, x) => s + x.total_amount, 0),
     credit: sales.filter((x) => x.payment_mode === 'Credit').reduce((s, x) => s + x.total_amount, 0),
   }), [sales]);
+
+  const returnsTotal = useMemo(() => returns.reduce((s, r) => s + r.refund_amount, 0), [returns]);
+
+  // Lazy render: 150 invoices up front, more as the user scrolls. Reset when
+  // the period (startDate/size) or sort changes.
+  const { shown: shownGroups, hasMore, sentinelRef, shownCount, total } = useProgressiveList(
+    sortedGroups,
+    `${startDate}|${sales.length}|${sortKey}|${sortDir}|${search}`,
+  );
 
   if (sales.length === 0) {
     return <p className="text-center py-16 text-gray-400 text-sm">No sales data for this period.</p>;
@@ -102,9 +134,23 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
         </button>
       </div>
 
+      {/* Net-of-returns summary — only when the period has returns */}
+      {returns.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+          <span className="text-gray-600">Gross sales <span className="font-semibold text-gray-800 tabular-nums">{formatGrandTotal(summary.total)}</span></span>
+          <span className="text-gray-600">Returns <span className="font-semibold text-red-600 tabular-nums">− {formatCurrency(returnsTotal)}</span> <span className="text-gray-400">({returns.length})</span></span>
+          <span className="text-gray-600">Net <span className="font-bold text-green-700 tabular-nums">{formatGrandTotal(summary.total - returnsTotal)}</span></span>
+          <span className="text-[11px] text-gray-400">Returns are separate transactions — the invoice list below shows original sales.</span>
+        </div>
+      )}
+
+      {sortedGroups.length === 0 && (
+        <p className="text-center py-12 text-gray-400 text-sm">No invoices match "{search}"</p>
+      )}
+
       {/* Mobile cards */}
-      <div className="space-y-2 sm:hidden">
-        {invoiceGroups.map((group) => {
+      <div className={`space-y-2 sm:hidden ${sortedGroups.length === 0 ? 'hidden' : ''}`}>
+        {shownGroups.map((group) => {
           const first = group[0];
           const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
           return (
@@ -131,7 +177,7 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
       </div>
 
       {/* Desktop table */}
-      <div className="hidden sm:block overflow-x-auto rounded-xl border border-gray-200">
+      <div className={`overflow-x-auto rounded-xl border border-gray-200 ${sortedGroups.length === 0 ? 'hidden' : 'hidden sm:block'}`}>
         <table className="min-w-full">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -154,7 +200,7 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
             </tr>
           </thead>
           <tbody>
-            {sortedGroups.map((group) => {
+            {shownGroups.map((group) => {
               const first = group[0];
               const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
               return (
@@ -182,12 +228,19 @@ export default function SalesRegisterReport({ sales, dateLabel, startDate }: Pro
                 Total ({sortedGroups.length} invoices)
               </td>
               <td className="px-3 py-2.5 text-right font-bold text-gray-900 tabular-nums">
-                {formatGrandTotal(summary.total)}
+                {formatGrandTotal(shownTotal)}
               </td>
               <td colSpan={2} />
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* Lazy-load sentinel + progress indicator */}
+      <div ref={sentinelRef} className="py-3 text-center text-xs text-gray-400">
+        {hasMore
+          ? `Showing ${shownCount} of ${total} invoices — scroll for more…`
+          : total > 150 && `All ${total} invoices shown`}
       </div>
 
       {selectedInvoice && (

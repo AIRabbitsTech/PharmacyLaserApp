@@ -12,14 +12,25 @@ export function useSales() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from('sales')
-        .select('*')
-        .gte('sale_date', startDate)
-        .lte('sale_date', endDate)
-        .order('created_at', { ascending: false });
-      if (err) throw err;
-      return data || [];
+      // Page through in 1000-row chunks — PostgREST caps a single response at
+      // 1000 rows, so a large date range would otherwise be silently truncated.
+      const PAGE = 1000;
+      const all: Sale[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: err } = await supabase
+          .from('sales')
+          .select('*')
+          .gte('sale_date', startDate)
+          .lte('sale_date', endDate)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (err) throw err;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+      }
+      return all;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch sales';
       setError(msg);

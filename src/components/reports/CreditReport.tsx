@@ -19,15 +19,15 @@ interface Props {
   // Authoritative all-time outstanding from the customer_outstanding SQL view.
   // null when the view is unavailable → fall back to the client-side computation.
   outstandingRows: OutstandingCustomerRow[] | null;
+  search?: string;
 }
 
-export default function CreditReport({ sales, allSales, creditPayments, outstandingRows }: Props) {
+export default function CreditReport({ sales, allSales, creditPayments, outstandingRows, search = '' }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
 
   // Current period credit rows (net of all payments)
   const periodRows = useMemo(() => computeOutstandingByCustomer(sales, creditPayments), [sales, creditPayments]);
-  const periodTotal = useMemo(() => periodRows.reduce((s, r) => s + r.total, 0), [periodRows]);
 
   // Per-customer invoice breakdown (for the expandable drill-down), keyed by the
   // same canonical customer key the SQL view uses.
@@ -64,13 +64,19 @@ export default function CreditReport({ sales, allSales, creditPayments, outstand
     }
     return computeOutstandingByCustomer(allSales, creditPayments);
   }, [outstandingRows, invoicesByKey, allSales, creditPayments]);
-  const allTimeTotal = useMemo(() => allTimeRows.reduce((s, r) => s + r.total, 0), [allTimeRows]);
 
   const [view, setView] = useState<'period' | 'alltime'>('alltime');
-  const rows = view === 'period' ? periodRows : allTimeRows;
-  const grandTotal = view === 'period' ? periodTotal : allTimeTotal;
+  const baseRows = view === 'period' ? periodRows : allTimeRows;
 
-  if (rows.length === 0) {
+  // Filter by customer name / mobile. Totals reflect what's listed.
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return baseRows;
+    return baseRows.filter((r) => r.name.toLowerCase().includes(q) || (r.mobile || '').includes(q));
+  }, [baseRows, search]);
+  const grandTotal = useMemo(() => rows.reduce((s, r) => s + r.total, 0), [rows]);
+
+  if (baseRows.length === 0) {
     return (
       <div className="text-center py-16 text-gray-400">
         <CreditCard size={40} className="mx-auto text-gray-300 mb-3" />
@@ -111,7 +117,12 @@ export default function CreditReport({ sales, allSales, creditPayments, outstand
           <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatGrandTotal(grandTotal)}</p>
         </div>
 
+        {rows.length === 0 && (
+          <p className="text-center py-10 text-gray-400 text-sm">No customers match "{search}"</p>
+        )}
+
         {/* Customer rows */}
+        {rows.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="min-w-full">
             <thead>
@@ -213,6 +224,7 @@ export default function CreditReport({ sales, allSales, creditPayments, outstand
             </tfoot>
           </table>
         </div>
+        )}
       </div>
 
       {selectedInvoice && (

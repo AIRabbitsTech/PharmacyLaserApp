@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, User, Phone, Search, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, User, Phone, Users } from 'lucide-react';
 import type { Sale } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import InvoiceModal from '../InvoiceModal';
@@ -7,6 +7,7 @@ import InvoiceModal from '../InvoiceModal';
 interface Props {
   sales: Sale[];
   allSales: Sale[];
+  search?: string;
 }
 
 interface InvoiceLine {
@@ -81,9 +82,8 @@ function PaymentBadge({ mode }: { mode: string }) {
   return <span className="badge-credit">{mode}</span>;
 }
 
-export default function CustomerReport({ sales, allSales }: Props) {
+export default function CustomerReport({ sales, allSales, search = '' }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
   const [view, setView] = useState<'period' | 'alltime'>('alltime');
 
@@ -131,18 +131,6 @@ export default function CustomerReport({ sales, allSales }: Props) {
             >
               Selected Period
             </button>
-          </div>
-
-          {/* Search */}
-          <div className="flex-1 min-w-[200px] relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name or mobile…"
-              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-colors"
-            />
           </div>
         </div>
 
