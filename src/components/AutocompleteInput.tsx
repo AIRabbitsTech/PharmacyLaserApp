@@ -11,6 +11,10 @@ interface Props {
   autoFocus?: boolean;
   inputType?: string;
   maxLength?: number;
+  // Force typed input to UPPERCASE as the user types (applied on keystrokes
+  // only, never to a picked suggestion — selecting must keep the exact stored
+  // spelling so lookups keyed on it, e.g. medicine details, still resolve).
+  uppercase?: boolean;
   // Optional canonicalizer run when the field loses focus. If it returns a
   // different string, the value is committed via onChange — used to snap a typed
   // medicine name onto its canonical spelling so no new variant is created.
@@ -28,6 +32,7 @@ const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function Autocompl
   autoFocus,
   inputType = 'text',
   maxLength,
+  uppercase,
   transformOnBlur,
 }, forwardedRef) {
   const [open, setOpen] = useState(false);
@@ -164,7 +169,7 @@ const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function Autocompl
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        onChange={(e) => { onChange(e.target.value); openDrop(); }}
+        onChange={(e) => { onChange(uppercase ? e.target.value.toUpperCase() : e.target.value); openDrop(); }}
         onFocus={openDrop}
         onBlur={() => {
           // Selecting a suggestion uses onMouseDown+preventDefault, so this

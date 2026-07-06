@@ -101,7 +101,7 @@ export default function SaleForm({
           <div className="col-span-2">
             <label className="label">Medicine Name *</label>
             <input type="text" className="input-field" value={med.medicine_name}
-              onChange={(e) => onMedicineChange(0, 'medicine_name', e.target.value)} required />
+              onChange={(e) => onMedicineChange(0, 'medicine_name', e.target.value.toUpperCase())} required />
           </div>
           <div>
             <label className="label">Batch No</label>
@@ -173,24 +173,6 @@ export default function SaleForm({
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Customer Info</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Customer Name</label>
-            <AutocompleteInput
-              value={formData.customer_name}
-              onChange={(v) => {
-                const sepIdx = v.indexOf(' | ');
-                if (sepIdx !== -1) {
-                  onFieldChange('customer_name', v.slice(0, sepIdx));
-                  onFieldChange('mobile_number', v.slice(sepIdx + 3));
-                } else {
-                  onFieldChange('customer_name', v);
-                }
-              }}
-              suggestions={customerSuggestions}
-              placeholder="Optional"
-              className="input-field"
-            />
-          </div>
-          <div>
             <label className="label">Mobile Number</label>
             <AutocompleteInput
               value={formData.mobile_number}
@@ -209,6 +191,25 @@ export default function SaleForm({
               className="input-field"
               inputType="tel"
               maxLength={10}
+            />
+          </div>
+          <div>
+            <label className="label">Customer Name</label>
+            <AutocompleteInput
+              value={formData.customer_name}
+              onChange={(v) => {
+                const sepIdx = v.indexOf(' | ');
+                if (sepIdx !== -1) {
+                  onFieldChange('customer_name', v.slice(0, sepIdx));
+                  onFieldChange('mobile_number', v.slice(sepIdx + 3));
+                } else {
+                  onFieldChange('customer_name', v);
+                }
+              }}
+              suggestions={customerSuggestions}
+              placeholder="Optional"
+              className="input-field"
+              uppercase
             />
           </div>
         </div>
@@ -306,6 +307,7 @@ export default function SaleForm({
                         suggestions={medicineSuggestions}
                         placeholder="Enter medicine name"
                         className={ci}
+                        uppercase
                       />
                     </td>
 
