@@ -84,12 +84,18 @@ test.describe('Credit Flow — Sale → Payment → Outstanding Report', () => {
     const modal = page.locator('.fixed.z-\\[50\\], [class*="z-50"]').last();
     await expect(modal.getByRole('paragraph').filter({ hasText: CUSTOMER })).toBeVisible({ timeout: 8_000 });
 
-    // Click "Pay Off" — scoped inside the modal
-    await modal.getByRole('button', { name: 'Pay Off' }).first().click();
+    // Filter the modal to the E2E customer FIRST, then pay off ONLY that row.
+    // Never use .first() — the top row is the highest-outstanding (real) customer,
+    // and paying it off would mutate live data that teardown can't recover.
+    await modal.getByPlaceholder(/Search customer/i).fill(CUSTOMER);
+    await page.waitForTimeout(500);
+    const e2eRow = modal.locator('tr', { hasText: CUSTOMER });
+    await expect(e2eRow).toHaveCount(1, { timeout: 5_000 });
+    await e2eRow.getByRole('button', { name: 'Pay Off' }).click();
 
     // Inline pay-off form appears — amount pre-filled, click Confirm
-    await expect(page.getByRole('button', { name: /Confirm/i })).toBeVisible({ timeout: 3_000 });
-    await page.getByRole('button', { name: /Confirm/i }).click();
+    await expect(modal.getByRole('button', { name: /Confirm/i })).toBeVisible({ timeout: 3_000 });
+    await modal.getByRole('button', { name: /Confirm/i }).click();
 
     // Toast: "Payment of ₹X recorded for ..."
     await expect(page.getByText(/Payment of/i)).toBeVisible({ timeout: 8_000 });
