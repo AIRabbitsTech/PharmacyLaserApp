@@ -12,13 +12,15 @@ dist
 dist-ssr
 *.local
 
-# Environment variables
-.env
-.env.*
+# Environment variables (covers .env, .env.*, .envLocal, etc.)
+.env*
 
 # Database backups
 *.dump
 backups/
+
+# Deploy artifacts
+*-dist.zip
 
 # Test reports (generated)
 playwright-report/

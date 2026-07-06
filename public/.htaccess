@@ -1,0 +1,31 @@
+# SPA routing: serve real files/dirs as-is, send everything else to index.html
+# so client-side routes (e.g. /reports, /quick-sale) work on refresh/deep-link.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  # Never rewrite ACME/Let's Encrypt challenges — keeps SSL issuance/renewal working
+  RewriteRule ^\.well-known/ - [L]
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Long-cache the fingerprinted assets (safe: filenames change on each build)
+<IfModule mod_expires.c>
+  ExpiresActive On
+  <FilesMatch "\.(js|css|woff2?|png|jpg|jpeg|gif|svg|ico)$">
+    ExpiresDefault "access plus 1 year"
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  # Never cache the HTML entry point, so new deploys are picked up immediately
+  <FilesMatch "\.(html)$">
+    ExpiresDefault "access plus 0 seconds"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# Gzip text assets if available
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+</IfModule>
