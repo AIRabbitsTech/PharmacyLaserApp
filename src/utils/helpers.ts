@@ -35,6 +35,27 @@ export function todayISO(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
+// Expiry is entered/stored as "MM/YY". Returns the (year, month) it represents,
+// or null if it isn't a valid month (month must be 01–12, e.g. "13/26" is invalid).
+export function parseExpiryMonth(mmYY: string): { year: number; month: number } | null {
+  const m = mmYY.trim().match(/^(\d{2})\/(\d{2})$/);
+  if (!m) return null;
+  const month = parseInt(m[1], 10);
+  if (month < 1 || month > 12) return null;
+  return { year: 2000 + parseInt(m[2], 10), month };
+}
+
+// A medicine is expired once the current month is past its expiry month — an
+// MM/YY expiry is usable through the END of that month. Returns false for a
+// blank or malformed value (format is validated separately).
+export function isExpiredExpiry(mmYY: string, now: Date = new Date()): boolean {
+  const parsed = parseExpiryMonth(mmYY);
+  if (!parsed) return false;
+  const curY = now.getFullYear();
+  const curM = now.getMonth() + 1;
+  return parsed.year < curY || (parsed.year === curY && parsed.month < curM);
+}
+
 export function getDateRange(preset: string, customStart?: string, customEnd?: string) {
   const now = new Date();
   switch (preset) {

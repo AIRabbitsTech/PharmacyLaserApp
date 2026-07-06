@@ -6,7 +6,7 @@ import SaleForm from '../components/SaleForm';
 import InvoiceModal from '../components/InvoiceModal';
 import { useSales } from '../hooks/useSales';
 import { useSuggestions } from '../hooks/useSuggestions';
-import { formatGrandTotal } from '../utils/helpers';
+import { formatGrandTotal, parseExpiryMonth, isExpiredExpiry } from '../utils/helpers';
 import type { Sale, SaleFormData, MedicineItem } from '../types';
 
 const EMPTY_MEDICINE: MedicineItem = {
@@ -49,6 +49,11 @@ function validate(data: SaleFormData): string | null {
     if (!qty || qty <= 0) return `Quantity must be > 0${label}`;
     const mrp = parseFloat(med.mrp);
     if (isNaN(mrp) || mrp <= 0) return `MRP must be > 0${label}`;
+    const exp = med.expiry_date.trim();
+    if (exp) {
+      if (!parseExpiryMonth(exp)) return `Expiry must be a valid month as MM/YY${label}`;
+      if (isExpiredExpiry(exp)) return `Cannot sell expired medicine (exp ${exp})${label}`;
+    }
   }
   if (!data.payment_mode) return 'Please select a payment mode';
   return null;
