@@ -1,20 +1,26 @@
 import { useState, useEffect } from 'react';
-import { X, User, Phone, Receipt, Check, Pencil, Printer } from 'lucide-react';
+import { X, User, Phone, Receipt, Check, Pencil, Printer, RotateCcw } from 'lucide-react';
 import type { Sale } from '../types';
 import { formatCurrency, formatDate, formatGrandTotal } from '../utils/helpers';
 import { printInvoice } from '../utils/printInvoice';
+import ReturnModal from './ReturnModal';
 
 interface InvoiceModalProps {
   sales: Sale[];
   onClose: () => void;
   onUpdateCustomer?: (invoiceNumber: string, customerName: string, mobileNumber: string) => Promise<boolean>;
+  // Opt-in: show the Return / Refund action (operational screens only).
+  allowReturn?: boolean;
+  // Called after a return is recorded, so the parent can refresh its data.
+  onReturnRecorded?: () => void;
 }
 
-export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: InvoiceModalProps) {
+export default function InvoiceModal({ sales, onClose, onUpdateCustomer, allowReturn, onReturnRecorded }: InvoiceModalProps) {
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftMobile, setDraftMobile] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showReturn, setShowReturn] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -58,6 +64,7 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
   };
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
       onClick={onClose}
@@ -77,6 +84,14 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
             {paymentBadge(first.payment_mode)}
           </div>
           <div className="flex items-center gap-2">
+            {allowReturn && (
+              <button
+                onClick={() => setShowReturn(true)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <RotateCcw size={14} /> Return
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors"
@@ -225,5 +240,14 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
         </div>
       </div>
     </div>
+
+    {allowReturn && showReturn && (
+      <ReturnModal
+        sales={sales}
+        onClose={() => setShowReturn(false)}
+        onRecorded={onReturnRecorded}
+      />
+    )}
+    </>
   );
 }

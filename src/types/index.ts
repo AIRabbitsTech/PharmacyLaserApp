@@ -32,6 +32,28 @@ export interface Sale {
   created_at: string;
 }
 
+// A recorded medicine return / credit note. One row per returned line.
+// See supabase/migrations/20260702120000_sales_returns.sql.
+export interface SalesReturn {
+  id: string;
+  return_date: string;
+  original_sale_id?: string | null;
+  original_invoice_number: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  mobile_number?: string | null;
+  medicine_name: string;
+  batch_number?: string | null;
+  quantity_returned: number;
+  refund_amount: number;
+  // 'Credit' reduces the customer's outstanding; 'Cash'/'UPI' move real money.
+  refund_mode: PaymentMode;
+  restocked: boolean;
+  reason?: string | null;
+  remarks?: string | null;
+  created_at: string;
+}
+
 export interface SaleFormData {
   customer_name: string;
   mobile_number: string;
