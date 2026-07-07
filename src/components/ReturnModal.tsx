@@ -5,6 +5,7 @@ import type { PaymentMode, Sale } from '../types';
 import { useSalesReturns } from '../hooks/useSalesReturns';
 import { useCustomerOutstanding } from '../hooks/useCustomerOutstanding';
 import { customerKey } from '../utils/credit';
+import { returnUnitPrice, paidForQty, isRefundOverPaid } from '../utils/returns';
 import { formatCurrency, formatGrandTotal, todayISO } from '../utils/helpers';
 
 interface Props {
@@ -16,14 +17,6 @@ interface Props {
 interface LineDraft {
   qty: string;    // quantity to return (editable)
   refund: string; // refund amount for this line (editable, auto-filled)
-}
-
-// Effective per-unit price actually paid = row total (post bill-discount &
-// rounding) ÷ quantity. Refunding at this rate gives the customer back exactly
-// what they paid, not the pre-discount selling_rate.
-function unitPrice(s: Sale): number {
-  if (!s.quantity) return 0;
-  return s.total_amount / s.quantity;
 }
 
 export default function ReturnModal({ sales, onClose, onRecorded }: Props) {
@@ -80,7 +73,7 @@ export default function ReturnModal({ sales, onClose, onRecorded }: Props) {
     let qty = parseFloat(raw);
     if (isNaN(qty) || qty < 0) qty = 0;
     if (qty > max) qty = max;
-    const refund = qty > 0 ? (qty * unitPrice(s)).toFixed(2) : '';
+    const refund = qty > 0 ? (qty * returnUnitPrice(s)).toFixed(2) : '';
     setDrafts((d) => ({ ...d, [s.id]: { qty: raw === '' ? '' : String(qty), refund } }));
   };
 
@@ -92,6 +85,26 @@ export default function ReturnModal({ sales, onClose, onRecorded }: Props) {
     [sales, drafts],
   );
   const anyQty = sales.some((s) => (parseFloat(drafts[s.id]?.qty) || 0) > 0);
+
+  // Option A soft guard: flag any line whose refund exceeds what was paid for
+  // the returned qty. Allowed (goodwill / restocking-fee cases exist) but
+  // surfaced so an over-typed amount can't slip through unnoticed.
+  const overRefundLines = useMemo(
+    () =>
+      sales
+        .map((s) => {
+          const qty = parseFloat(drafts[s.id]?.qty) || 0;
+          const refund = parseFloat(drafts[s.id]?.refund) || 0;
+          return {
+            name: s.medicine_name,
+            over: refund - paidForQty(s, qty),
+            flagged: isRefundOverPaid(refund, s, qty),
+          };
+        })
+        .filter((l) => l.flagged),
+    [sales, drafts],
+  );
+  const overRefundTotal = overRefundLines.reduce((s, l) => s + l.over, 0);
 
   // Option A: a Credit refund can't exceed what the customer still owes. The
   // excess should be handed back via Cash/UPI instead. Cash/UPI modes are never
@@ -187,7 +200,7 @@ export default function ReturnModal({ sales, onClose, onRecorded }: Props) {
                     <tr key={s.id} className={disabled ? 'opacity-50' : ''}>
                       <td className="py-2.5 pr-2">
                         <p className="text-sm font-medium text-gray-800">{s.medicine_name}</p>
-                        <p className="text-xs text-gray-400">@ {formatCurrency(unitPrice(s))}/unit{s.batch_number ? ` · ${s.batch_number}` : ''}</p>
+                        <p className="text-xs text-gray-400">@ {formatCurrency(returnUnitPrice(s))}/unit{s.batch_number ? ` · ${s.batch_number}` : ''}</p>
                       </td>
                       <td className="py-2.5 text-right text-sm text-gray-600">{s.quantity}</td>
                       <td className="py-2.5 text-right text-sm text-gray-600">{max}</td>
@@ -261,6 +274,20 @@ export default function ReturnModal({ sales, onClose, onRecorded }: Props) {
                       Refund the extra <span className="font-semibold">{formatCurrency(creditExcess)}</span> via <b>Cash</b> or <b>UPI</b> instead
                       {creditOutstanding > 0 && <> (or lower the return so the credit portion is at most {formatCurrency(creditOutstanding)})</>}.
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Option A soft guard: refund exceeds what was paid (still allowed) */}
+              {overRefundLines.length > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs">
+                  <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="text-amber-800">
+                    Refunding <span className="font-semibold">{formatCurrency(overRefundTotal)}</span> more than was paid
+                    {overRefundLines.length === 1
+                      ? <> on <span className="font-semibold">{overRefundLines[0].name}</span>.</>
+                      : <> across <span className="font-semibold">{overRefundLines.length} items</span>.</>}
+                    <span className="text-amber-700"> This is allowed — double-check the amount before confirming.</span>
                   </div>
                 </div>
               )}
