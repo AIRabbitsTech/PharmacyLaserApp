@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Search, X, Calendar, Pencil, Printer, RotateCcw } from 'lucide-react';
+import { Search, X, Calendar, Pencil, Printer, RotateCcw, MessageCircle } from 'lucide-react';
 import { useSales } from '../hooks/useSales';
 import { useSalesReturns } from '../hooks/useSalesReturns';
 import { useProgressiveList } from '../hooks/useProgressiveList';
 import type { Sale } from '../types';
 import { formatCurrency, formatDate, todayISO, getDateRange } from '../utils/helpers';
+import { buildWhatsAppLink } from '../utils/whatsapp';
+import { getPharmacyProfile } from '../hooks/usePharmacyProfile';
 import InvoiceModal from '../components/InvoiceModal';
 import InvoiceEditOverlay from '../components/InvoiceEditOverlay';
 import { printInvoice } from '../utils/printInvoice';
@@ -153,6 +155,24 @@ export default function SalesList() {
     return <span className="badge-credit">{mode}</span>;
   };
 
+  // Free WhatsApp click-to-chat link for an invoice — opens WhatsApp with a
+  // pre-filled receipt message to the customer (they press send). Null when the
+  // invoice has no valid mobile number, in which case the button is hidden.
+  const waHref = (group: Sale[]): string | null => {
+    const first = group[0];
+    const total = group.reduce((s, x) => s + x.total_amount, 0);
+    const items = group.map((g) => `${g.medicine_name} x${g.quantity}`).join(', ');
+    const pharmacy = getPharmacyProfile();
+    const message =
+      `Thank you for shopping at ${pharmacy.name || 'our pharmacy'}!\n\n` +
+      `Invoice: ${first.invoice_number}\n` +
+      `Date: ${formatDate(first.sale_date)}\n` +
+      `Items: ${items}\n` +
+      `Total: ${formatCurrency(total)}\n\n` +
+      `Get well soon!`;
+    return buildWhatsAppLink(first.mobile_number, message);
+  };
+
   // Flag shown next to an invoice that has at least one return/refund against it.
   const returnFlag = (invoiceNumber: string) =>
     returnedInvoices.has(invoiceNumber) ? (
@@ -253,6 +273,7 @@ export default function SalesList() {
           {shownGroups.map((group) => {
             const first = group[0];
             const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
+            const wa = waHref(group);
             return (
               <div key={first.invoice_number} className="card space-y-2">
                 <div className="flex items-start justify-between gap-2">
@@ -295,6 +316,17 @@ export default function SalesList() {
                   >
                     <Printer size={12} /> Print
                   </button>
+                  {wa && (
+                    <a
+                      href={wa}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Send receipt on WhatsApp"
+                      className="flex items-center gap-1.5 text-xs font-medium text-green-600 hover:text-green-700"
+                    >
+                      <MessageCircle size={12} /> WhatsApp
+                    </a>
+                  )}
                 </div>
               </div>
             );
@@ -319,6 +351,7 @@ export default function SalesList() {
               {shownGroups.map((group) => {
                 const first = group[0];
                 const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
+                const wa = waHref(group);
                 return (
                   <tr key={first.invoice_number} className="hover:bg-gray-50 transition-colors">
                     <td className="table-cell">
@@ -358,6 +391,17 @@ export default function SalesList() {
                         >
                           <Printer size={12} /> Print
                         </button>
+                        {wa && (
+                          <a
+                            href={wa}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Send receipt on WhatsApp"
+                            className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded-md transition-colors"
+                          >
+                            <MessageCircle size={12} /> WhatsApp
+                          </a>
+                        )}
                       </div>
                     </td>
                   </tr>
