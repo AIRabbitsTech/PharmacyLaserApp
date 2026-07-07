@@ -106,6 +106,31 @@ export function useSalesReturns() {
     }
   }, []);
 
+  // Given the invoice numbers currently on screen, return the subset that has at
+  // least one return booked against it — for flagging in lists. Matched by
+  // invoice (not date), since a return can be dated later than the sale. Safe
+  // (returns an empty set) when the sales_returns table isn't present yet.
+  const fetchReturnedInvoiceSet = useCallback(async (invoiceNumbers: string[]): Promise<Set<string>> => {
+    const unique = [...new Set(invoiceNumbers)].filter(Boolean);
+    if (unique.length === 0) return new Set();
+    const result = new Set<string>();
+    const CHUNK = 300; // keep the .in() list well under URL-length limits
+    try {
+      for (let i = 0; i < unique.length; i += CHUNK) {
+        const batch = unique.slice(i, i + CHUNK);
+        const { data, error: err } = await supabase
+          .from('sales_returns')
+          .select('original_invoice_number')
+          .in('original_invoice_number', batch);
+        if (err) throw err;
+        for (const r of data || []) result.add(r.original_invoice_number as string);
+      }
+    } catch {
+      return new Set();
+    }
+    return result;
+  }, []);
+
   // Returns within a date window — for netting into the sales/revenue reports.
   const fetchReturnsByDateRange = useCallback(async (startDate: string, endDate: string): Promise<SalesReturn[]> => {
     try {
@@ -122,5 +147,5 @@ export function useSalesReturns() {
     }
   }, []);
 
-  return { loading, error, recordReturn, fetchReturnsByInvoice, fetchReturnsByDateRange };
+  return { loading, error, recordReturn, fetchReturnsByInvoice, fetchReturnsByDateRange, fetchReturnedInvoiceSet };
 }

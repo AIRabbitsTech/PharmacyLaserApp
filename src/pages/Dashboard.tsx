@@ -96,6 +96,7 @@ export default function Dashboard() {
   const [todayCreditByCustomer, setTodayCreditByCustomer] = useState<CustomerCredit[]>([]);
   const [showTodayCreditModal, setShowTodayCreditModal] = useState(false);
   const [todayReturns, setTodayReturns] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
+  const [returnedInvoices, setReturnedInvoices] = useState<Set<string>>(new Set());
 
   const loadData = useCallback(async () => {
     const now = new Date();
@@ -129,6 +130,8 @@ export default function Dashboard() {
       total: todayReturnRows.reduce((s, r) => s + r.refund_amount, 0),
       count: todayReturnRows.length,
     });
+    // Invoices with any return booked against them — for the Recent Transactions flag.
+    setReturnedInvoices(new Set(allReturns.map((r) => r.original_invoice_number)));
 
     // Today's credit breakdown by customer
     const todayCreditMap = new Map<string, CustomerCredit>();
@@ -375,12 +378,22 @@ export default function Dashboard() {
                   return (
                     <tr key={first.invoice_number} className="hover:bg-gray-50 transition-colors">
                       <td className="table-cell">
-                        <button
-                          onClick={() => setSelectedInvoice(group)}
-                          className="font-mono text-xs text-blue-600 hover:underline font-semibold"
-                        >
-                          {first.invoice_number}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedInvoice(group)}
+                            className="font-mono text-xs text-blue-600 hover:underline font-semibold"
+                          >
+                            {first.invoice_number}
+                          </button>
+                          {returnedInvoices.has(first.invoice_number) && (
+                            <span
+                              title="This invoice has a return / refund"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold"
+                            >
+                              <RotateCcw size={10} /> Returned
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="table-cell text-gray-700 max-w-[160px] truncate">{first.customer_name || '—'}</td>
                       <td className="table-cell text-right font-semibold text-gray-900">{formatCurrency(groupTotal)}</td>

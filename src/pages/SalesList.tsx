@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Search, X, Calendar, Pencil, Printer } from 'lucide-react';
+import { Search, X, Calendar, Pencil, Printer, RotateCcw } from 'lucide-react';
 import { useSales } from '../hooks/useSales';
+import { useSalesReturns } from '../hooks/useSalesReturns';
 import { useProgressiveList } from '../hooks/useProgressiveList';
 import type { Sale } from '../types';
 import { formatCurrency, formatDate, todayISO, getDateRange } from '../utils/helpers';
@@ -53,7 +54,9 @@ function groupByInvoice(sales: Sale[]): Sale[][] {
 
 export default function SalesList() {
   const { fetchSalesByDateRange, updateInvoiceCustomer, loading } = useSales();
+  const { fetchReturnedInvoiceSet } = useSalesReturns();
   const [sales, setSales] = useState<Sale[]>([]);
+  const [returnedInvoices, setReturnedInvoices] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [selectedInvoiceNumber, setSelectedInvoiceNumber] = useState<string | null>(null);
   const [editingInvoiceSales, setEditingInvoiceSales] = useState<Sale[] | null>(null);
@@ -68,8 +71,18 @@ export default function SalesList() {
 
   useEffect(() => {
     if (datePreset === 'custom' && (!customStart || !customEnd)) return;
-    fetchSalesByDateRange(rangeStart, rangeEnd).then(setSales);
-  }, [fetchSalesByDateRange, rangeStart, rangeEnd]);
+    let active = true;
+    fetchSalesByDateRange(rangeStart, rangeEnd).then((data) => {
+      if (!active) return;
+      setSales(data);
+      // Flag which of these invoices have a return booked against them.
+      const invoiceNumbers = [...new Set(data.map((s) => s.invoice_number))];
+      fetchReturnedInvoiceSet(invoiceNumbers).then((set) => {
+        if (active) setReturnedInvoices(set);
+      });
+    });
+    return () => { active = false; };
+  }, [fetchSalesByDateRange, fetchReturnedInvoiceSet, rangeStart, rangeEnd]);
 
   const filtered = sales.filter((s) => {
     const q = search.toLowerCase();
@@ -139,6 +152,17 @@ export default function SalesList() {
     if (mode === 'UPI') return <span className="badge-upi">{mode}</span>;
     return <span className="badge-credit">{mode}</span>;
   };
+
+  // Flag shown next to an invoice that has at least one return/refund against it.
+  const returnFlag = (invoiceNumber: string) =>
+    returnedInvoices.has(invoiceNumber) ? (
+      <span
+        title="This invoice has a return / refund"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold align-middle"
+      >
+        <RotateCcw size={10} /> Returned
+      </span>
+    ) : null;
 
   return (
     <div className="space-y-4">
@@ -233,12 +257,15 @@ export default function SalesList() {
               <div key={first.invoice_number} className="card space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <button
-                      onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
-                      className="font-mono text-sm text-blue-600 font-semibold hover:underline text-left"
-                    >
-                      {first.invoice_number}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
+                        className="font-mono text-sm text-blue-600 font-semibold hover:underline text-left"
+                      >
+                        {first.invoice_number}
+                      </button>
+                      {returnFlag(first.invoice_number)}
+                    </div>
                     <p className="text-sm font-medium text-gray-900 mt-0.5">
                       {group.length === 1
                         ? first.medicine_name
@@ -295,12 +322,15 @@ export default function SalesList() {
                 return (
                   <tr key={first.invoice_number} className="hover:bg-gray-50 transition-colors">
                     <td className="table-cell">
-                      <button
-                        onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
-                        className="font-mono text-xs text-blue-600 hover:underline font-semibold"
-                      >
-                        {first.invoice_number}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
+                          className="font-mono text-xs text-blue-600 hover:underline font-semibold"
+                        >
+                          {first.invoice_number}
+                        </button>
+                        {returnFlag(first.invoice_number)}
+                      </div>
                       {first.customer_name && (
                         <p className="text-xs text-gray-500 mt-0.5">{first.customer_name}</p>
                       )}
@@ -374,6 +404,10 @@ export default function SalesList() {
           onClose={() => setSelectedInvoiceNumber(null)}
           onUpdateCustomer={handleUpdateCustomer}
           allowReturn
+          onReturnRecorded={() => {
+            const invoiceNumbers = [...new Set(sales.map((s) => s.invoice_number))];
+            fetchReturnedInvoiceSet(invoiceNumbers).then(setReturnedInvoices);
+          }}
         />
       )}
 
