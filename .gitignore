@@ -19,9 +19,8 @@ dist-ssr
 *.dump
 backups/
 
-# Deploy artifacts
-*-dist.zip
-dist.zip
+# Deploy artifacts (build zips)
+*.zip
 
 # Test reports (generated)
 playwright-report/
