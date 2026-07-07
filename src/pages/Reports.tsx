@@ -288,7 +288,7 @@ export default function Reports() {
               <ExpiryReport search={search} />
             )}
             {activeTab === 'credit' && (
-              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} outstandingRows={outstandingRows} search={search} />
+              <CreditReport sales={sales} allSales={allSales} creditPayments={creditPayments} returns={returns} outstandingRows={outstandingRows} search={search} />
             )}
             {activeTab === 'customers' && (
               <CustomerReport sales={sales} allSales={allSales} search={search} />

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, User, Phone, CreditCard } from 'lucide-react';
-import type { Sale } from '../../types';
+import type { Sale, SalesReturn } from '../../types';
 import { formatGrandTotal, formatDate } from '../../utils/helpers';
 import {
   computeOutstandingByCustomer,
@@ -16,18 +16,24 @@ interface Props {
   sales: Sale[];
   allSales: Sale[];
   creditPayments: CreditPaymentLike[];
+  // Returns within the selected period — Credit-mode returns reduce a customer's
+  // period outstanding (mirrors the customer_outstanding SQL view).
+  returns?: SalesReturn[];
   // Authoritative all-time outstanding from the customer_outstanding SQL view.
   // null when the view is unavailable → fall back to the client-side computation.
   outstandingRows: OutstandingCustomerRow[] | null;
   search?: string;
 }
 
-export default function CreditReport({ sales, allSales, creditPayments, outstandingRows, search = '' }: Props) {
+export default function CreditReport({ sales, allSales, creditPayments, returns = [], outstandingRows, search = '' }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
 
-  // Current period credit rows (net of all payments)
-  const periodRows = useMemo(() => computeOutstandingByCustomer(sales, creditPayments), [sales, creditPayments]);
+  // Current period credit rows (net of all payments AND Credit-mode returns).
+  const periodRows = useMemo(
+    () => computeOutstandingByCustomer(sales, creditPayments, returns),
+    [sales, creditPayments, returns],
+  );
 
   // Per-customer invoice breakdown (for the expandable drill-down), keyed by the
   // same canonical customer key the SQL view uses.
@@ -62,6 +68,10 @@ export default function CreditReport({ sales, allSales, creditPayments, outstand
         invoices: invoicesByKey.get(r.customer_key) ?? [],
       }));
     }
+    // Degraded fallback (SQL view down): returns are NOT applied here because
+    // only period-scoped returns are loaded, and subtracting those from all-time
+    // sales would be wrong. The authoritative all-time path above (the SQL view)
+    // already nets Credit returns correctly.
     return computeOutstandingByCustomer(allSales, creditPayments);
   }, [outstandingRows, invoicesByKey, allSales, creditPayments]);
 
