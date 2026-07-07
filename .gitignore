@@ -21,6 +21,7 @@ backups/
 
 # Deploy artifacts
 *-dist.zip
+dist.zip
 
 # Test reports (generated)
 playwright-report/
