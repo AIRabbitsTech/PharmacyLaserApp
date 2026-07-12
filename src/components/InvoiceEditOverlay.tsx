@@ -141,6 +141,11 @@ export default function InvoiceEditOverlay({ sales, onClose, onSaved }: InvoiceE
   const doSave = async () => {
     const filled = formData.medicines.filter((m) => m.medicine_name.trim());
     if (filled.length === 0) { toast.error('At least one medicine is required'); return; }
+    // Mirror QuickSale: a Credit sale must name the customer, else the receivable
+    // can't be linked (customer_id NULL) and drops out of the outstanding ledger.
+    if (formData.payment_mode === 'Credit' && !formData.customer_name.trim()) {
+      toast.error('Customer Name is mandatory for Credit transactions.'); return;
+    }
     for (let i = 0; i < filled.length; i++) {
       const med = filled[i];
       const label = filled.length > 1 ? ` (Medicine ${i + 1})` : '';

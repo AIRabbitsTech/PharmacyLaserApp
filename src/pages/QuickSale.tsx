@@ -56,6 +56,11 @@ function validate(data: SaleFormData): string | null {
     }
   }
   if (!data.payment_mode) return 'Please select a payment mode';
+  // A credit sale MUST identify the customer — otherwise the receivable can't be
+  // linked to anyone (customer_id stays NULL) and it silently drops out of the
+  // outstanding ledger while still counting in Today's Credit Sales.
+  if (data.payment_mode === 'Credit' && !data.customer_name.trim())
+    return 'Customer Name is mandatory for Credit transactions.';
   return null;
 }
 
