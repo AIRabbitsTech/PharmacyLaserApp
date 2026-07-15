@@ -30,6 +30,10 @@ export interface Sale {
   bill_discount?: number;
   remarks?: string;
   created_at: string;
+  // Stamped by the sales_set_updated_at trigger on every write. Equal to
+  // created_at for un-edited rows; later than created_at once the row is
+  // changed. See supabase/migrations/20260715120000_sales_updated_at.sql.
+  updated_at?: string;
 }
 
 // A recorded medicine return / credit note. One row per returned line.
