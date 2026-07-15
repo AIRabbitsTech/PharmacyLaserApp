@@ -46,16 +46,26 @@ export function useSales() {
   }, [fetchSalesByDateRange]);
 
   const getNextInvoiceNumber = useCallback(async (): Promise<string> => {
+    // Derive the next number from the HIGHEST existing canonical invoice
+    // number — NOT the most-recently-created row. Editing an old bill (or an
+    // import) inserts a row whose created_at is newest but whose number is not
+    // the latest; keying off that row made the next sale reuse an existing
+    // number, so two different customers could share one invoice number.
+    //
+    // The regex filter keeps only canonical "INV-<digits>" numbers, excluding
+    // imported "INV-IMP-####" / "INV-####-###" formats. Because those numbers
+    // are zero-padded to 4 digits, descending lexical order equals numeric
+    // order, so the first row is the numeric max (holds up to INV-9999).
     const { data } = await supabase
       .from('sales')
       .select('invoice_number')
-      .order('created_at', { ascending: false })
+      .filter('invoice_number', 'match', '^INV-[0-9]+$')
+      .order('invoice_number', { ascending: false })
       .limit(1);
 
     if (!data || data.length === 0) return 'INV-0001';
 
-    const last = data[0].invoice_number as string;
-    const match = last.match(/INV-(\d+)/);
+    const match = (data[0].invoice_number as string).match(/^INV-(\d+)$/);
     if (!match) return 'INV-0001';
     return generateInvoiceNumber(parseInt(match[1], 10));
   }, []);
