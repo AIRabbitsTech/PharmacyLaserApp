@@ -23,6 +23,7 @@ export function useCreditPayments() {
   const recordPayment = useCallback(async (data: {
     customer_name: string;
     mobile_number?: string;
+    customer_id?: string | null;
     amount: number;
     payment_mode: 'Cash' | 'UPI';
     paid_date: string;
@@ -30,14 +31,19 @@ export function useCreditPayments() {
   }): Promise<boolean> => {
     setLoading(true);
     try {
-      const { error } = await supabase.from('credit_payments').insert({
+      const payload: Record<string, unknown> = {
         customer_name: data.customer_name,
         mobile_number: data.mobile_number || null,
         amount: data.amount,
         payment_mode: data.payment_mode,
         paid_date: data.paid_date,
         remarks: data.remarks?.trim() || null,
-      });
+      };
+      // Only send customer_id when we actually have one — the column doesn't
+      // exist until the Phase 1 migration runs, so omitting it keeps pre-migration
+      // pay-offs working. The customer_outstanding view's fallback covers the gap.
+      if (data.customer_id) payload.customer_id = data.customer_id;
+      const { error } = await supabase.from('credit_payments').insert(payload);
       if (error) throw error;
       return true;
     } catch {

@@ -30,6 +30,32 @@ export interface Sale {
   bill_discount?: number;
   remarks?: string;
   created_at: string;
+  // Stamped by the sales_set_updated_at trigger on every write. Equal to
+  // created_at for un-edited rows; later than created_at once the row is
+  // changed. See supabase/migrations/20260715120000_sales_updated_at.sql.
+  updated_at?: string;
+}
+
+// A recorded medicine return / credit note. One row per returned line.
+// See supabase/migrations/20260702120000_sales_returns.sql.
+export interface SalesReturn {
+  id: string;
+  return_date: string;
+  original_sale_id?: string | null;
+  original_invoice_number: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  mobile_number?: string | null;
+  medicine_name: string;
+  batch_number?: string | null;
+  quantity_returned: number;
+  refund_amount: number;
+  // 'Credit' reduces the customer's outstanding; 'Cash'/'UPI' move real money.
+  refund_mode: PaymentMode;
+  restocked: boolean;
+  reason?: string | null;
+  remarks?: string | null;
+  created_at: string;
 }
 
 export interface SaleFormData {

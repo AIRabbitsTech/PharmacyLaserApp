@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Search, X, Calendar, Pencil, Printer } from 'lucide-react';
+import { Search, X, Calendar, Pencil, Printer, RotateCcw, MessageCircle } from 'lucide-react';
 import { useSales } from '../hooks/useSales';
+import { useSalesReturns } from '../hooks/useSalesReturns';
+import { useProgressiveList } from '../hooks/useProgressiveList';
 import type { Sale } from '../types';
 import { formatCurrency, formatDate, todayISO, getDateRange } from '../utils/helpers';
+import { buildWhatsAppLink } from '../utils/whatsapp';
+import { getPharmacyProfile } from '../hooks/usePharmacyProfile';
 import InvoiceModal from '../components/InvoiceModal';
 import InvoiceEditOverlay from '../components/InvoiceEditOverlay';
 import { printInvoice } from '../utils/printInvoice';
 
-type DatePreset = 'today' | 'yesterday' | 'last_7_days' | 'this_month' | 'custom';
+type DatePreset = 'today' | 'yesterday' | 'last_7_days' | 'this_month' | 'last_month' | 'custom';
 
 const PRESETS: { key: DatePreset; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
   { key: 'last_7_days', label: 'Last 7 Days' },
   { key: 'this_month', label: 'This Month' },
+  { key: 'last_month', label: 'Last Month' },
   { key: 'custom', label: 'Custom' },
 ];
 
@@ -23,6 +28,7 @@ const PAGE_TITLES: Record<DatePreset, string> = {
   yesterday: "Yesterday's Sales",
   last_7_days: 'Sales · Last 7 Days',
   this_month: 'Sales · This Month',
+  last_month: 'Sales · Last Month',
   custom: 'Sales',
 };
 
@@ -31,6 +37,7 @@ const EMPTY_MESSAGES: Record<DatePreset, string> = {
   yesterday: 'No sales recorded yesterday',
   last_7_days: 'No sales in the last 7 days',
   this_month: 'No sales this month',
+  last_month: 'No sales last month',
   custom: 'No sales in the selected date range',
 };
 
@@ -49,7 +56,9 @@ function groupByInvoice(sales: Sale[]): Sale[][] {
 
 export default function SalesList() {
   const { fetchSalesByDateRange, updateInvoiceCustomer, loading } = useSales();
+  const { fetchReturnedInvoiceSet } = useSalesReturns();
   const [sales, setSales] = useState<Sale[]>([]);
+  const [returnedInvoices, setReturnedInvoices] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [selectedInvoiceNumber, setSelectedInvoiceNumber] = useState<string | null>(null);
   const [editingInvoiceSales, setEditingInvoiceSales] = useState<Sale[] | null>(null);
@@ -64,8 +73,18 @@ export default function SalesList() {
 
   useEffect(() => {
     if (datePreset === 'custom' && (!customStart || !customEnd)) return;
-    fetchSalesByDateRange(rangeStart, rangeEnd).then(setSales);
-  }, [fetchSalesByDateRange, rangeStart, rangeEnd]);
+    let active = true;
+    fetchSalesByDateRange(rangeStart, rangeEnd).then((data) => {
+      if (!active) return;
+      setSales(data);
+      // Flag which of these invoices have a return booked against them.
+      const invoiceNumbers = [...new Set(data.map((s) => s.invoice_number))];
+      fetchReturnedInvoiceSet(invoiceNumbers).then((set) => {
+        if (active) setReturnedInvoices(set);
+      });
+    });
+    return () => { active = false; };
+  }, [fetchSalesByDateRange, fetchReturnedInvoiceSet, rangeStart, rangeEnd]);
 
   const filtered = sales.filter((s) => {
     const q = search.toLowerCase();
@@ -78,6 +97,13 @@ export default function SalesList() {
   });
 
   const filteredGroups = useMemo(() => groupByInvoice(filtered), [filtered]);
+
+  // Lazy render: show 150 invoices, reveal more as the user scrolls. Reset the
+  // window whenever the date range or search term changes.
+  const { shown: shownGroups, hasMore, sentinelRef, shownCount, total } = useProgressiveList(
+    filteredGroups,
+    `${datePreset}|${rangeStart}|${rangeEnd}|${search}`,
+  );
 
   const totalAmount = filtered.reduce((s, x) => s + x.total_amount, 0);
 
@@ -128,6 +154,35 @@ export default function SalesList() {
     if (mode === 'UPI') return <span className="badge-upi">{mode}</span>;
     return <span className="badge-credit">{mode}</span>;
   };
+
+  // Free WhatsApp click-to-chat link for an invoice — opens WhatsApp with a
+  // pre-filled receipt message to the customer (they press send). Null when the
+  // invoice has no valid mobile number, in which case the button is hidden.
+  const waHref = (group: Sale[]): string | null => {
+    const first = group[0];
+    const total = group.reduce((s, x) => s + x.total_amount, 0);
+    const items = group.map((g) => `${g.medicine_name} x${g.quantity}`).join(', ');
+    const pharmacy = getPharmacyProfile();
+    const message =
+      `Thank you for shopping at ${pharmacy.name || 'our pharmacy'}!\n\n` +
+      `Invoice: ${first.invoice_number}\n` +
+      `Date: ${formatDate(first.sale_date)}\n` +
+      `Items: ${items}\n` +
+      `Total: ${formatCurrency(total)}\n\n` +
+      `Get well soon!`;
+    return buildWhatsAppLink(first.mobile_number, message);
+  };
+
+  // Flag shown next to an invoice that has at least one return/refund against it.
+  const returnFlag = (invoiceNumber: string) =>
+    returnedInvoices.has(invoiceNumber) ? (
+      <span
+        title="This invoice has a return / refund"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold align-middle"
+      >
+        <RotateCcw size={10} /> Returned
+      </span>
+    ) : null;
 
   return (
     <div className="space-y-4">
@@ -215,19 +270,23 @@ export default function SalesList() {
       {/* Mobile Cards */}
       {!loading && filteredGroups.length > 0 && (
         <div className="space-y-3 sm:hidden">
-          {filteredGroups.map((group) => {
+          {shownGroups.map((group) => {
             const first = group[0];
             const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
+            const wa = waHref(group);
             return (
               <div key={first.invoice_number} className="card space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <button
-                      onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
-                      className="font-mono text-sm text-blue-600 font-semibold hover:underline text-left"
-                    >
-                      {first.invoice_number}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
+                        className="font-mono text-sm text-blue-600 font-semibold hover:underline text-left"
+                      >
+                        {first.invoice_number}
+                      </button>
+                      {returnFlag(first.invoice_number)}
+                    </div>
                     <p className="text-sm font-medium text-gray-900 mt-0.5">
                       {group.length === 1
                         ? first.medicine_name
@@ -257,6 +316,17 @@ export default function SalesList() {
                   >
                     <Printer size={12} /> Print
                   </button>
+                  {wa && (
+                    <a
+                      href={wa}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Send receipt on WhatsApp"
+                      className="flex items-center gap-1.5 text-xs font-medium text-green-600 hover:text-green-700"
+                    >
+                      <MessageCircle size={12} /> WhatsApp
+                    </a>
+                  )}
                 </div>
               </div>
             );
@@ -278,18 +348,22 @@ export default function SalesList() {
               </tr>
             </thead>
             <tbody>
-              {filteredGroups.map((group) => {
+              {shownGroups.map((group) => {
                 const first = group[0];
                 const groupTotal = group.reduce((s, x) => s + x.total_amount, 0);
+                const wa = waHref(group);
                 return (
                   <tr key={first.invoice_number} className="hover:bg-gray-50 transition-colors">
                     <td className="table-cell">
-                      <button
-                        onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
-                        className="font-mono text-xs text-blue-600 hover:underline font-semibold"
-                      >
-                        {first.invoice_number}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedInvoiceNumber(first.invoice_number)}
+                          className="font-mono text-xs text-blue-600 hover:underline font-semibold"
+                        >
+                          {first.invoice_number}
+                        </button>
+                        {returnFlag(first.invoice_number)}
+                      </div>
                       {first.customer_name && (
                         <p className="text-xs text-gray-500 mt-0.5">{first.customer_name}</p>
                       )}
@@ -317,6 +391,17 @@ export default function SalesList() {
                         >
                           <Printer size={12} /> Print
                         </button>
+                        {wa && (
+                          <a
+                            href={wa}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Send receipt on WhatsApp"
+                            className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded-md transition-colors"
+                          >
+                            <MessageCircle size={12} /> WhatsApp
+                          </a>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -338,6 +423,15 @@ export default function SalesList() {
         </div>
       )}
 
+      {/* Lazy-load sentinel + progress indicator */}
+      {!loading && filteredGroups.length > 0 && (
+        <div ref={sentinelRef} className="py-3 text-center text-xs text-gray-400">
+          {hasMore
+            ? `Showing ${shownCount} of ${total} invoices — scroll for more…`
+            : total > 150 && `All ${total} invoices shown`}
+        </div>
+      )}
+
       {/* Full Invoice Edit Overlay */}
       {editingInvoiceSales && (
         <InvoiceEditOverlay
@@ -353,6 +447,11 @@ export default function SalesList() {
           sales={invoiceModalSales}
           onClose={() => setSelectedInvoiceNumber(null)}
           onUpdateCustomer={handleUpdateCustomer}
+          allowReturn
+          onReturnRecorded={() => {
+            const invoiceNumbers = [...new Set(sales.map((s) => s.invoice_number))];
+            fetchReturnedInvoiceSet(invoiceNumbers).then(setReturnedInvoices);
+          }}
         />
       )}
 

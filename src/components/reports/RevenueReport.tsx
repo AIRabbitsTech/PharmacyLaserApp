@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
-import { TrendingUp, Receipt, Package } from 'lucide-react';
-import type { Sale } from '../../types';
+import { TrendingUp, Receipt, Package, RotateCcw } from 'lucide-react';
+import type { Sale, SalesReturn } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 interface Props {
   sales: Sale[];
+  returns?: SalesReturn[];
 }
 
-export default function RevenueReport({ sales }: Props) {
+export default function RevenueReport({ sales, returns = [] }: Props) {
   const stats = useMemo(() => {
     const invoiceSet = new Set(sales.map((s) => s.invoice_number));
     const total = sales.reduce((s, x) => s + x.total_amount, 0);
@@ -21,6 +22,21 @@ export default function RevenueReport({ sales }: Props) {
       avgBill: invoiceSet.size > 0 ? total / invoiceSet.size : 0,
     };
   }, [sales]);
+
+  // Returns are booked by refund_mode, netting against that same mode.
+  const ret = useMemo(() => {
+    const byMode = (m: string) =>
+      returns.filter((r) => r.refund_mode === m).reduce((s, r) => s + r.refund_amount, 0);
+    const total = returns.reduce((s, r) => s + r.refund_amount, 0);
+    return { total, cash: byMode('Cash'), upi: byMode('UPI'), credit: byMode('Credit'), count: returns.length };
+  }, [returns]);
+
+  const net = {
+    total: stats.total - ret.total,
+    cash: stats.cash - ret.cash,
+    upi: stats.upi - ret.upi,
+    credit: stats.credit - ret.credit,
+  };
 
   const dayRows = useMemo(() => {
     const map = new Map<string, {
@@ -85,9 +101,49 @@ export default function RevenueReport({ sales }: Props) {
         </div>
       </div>
 
+      {/* Returns & Net Revenue — only when returns exist in the period */}
+      {ret.count > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <RotateCcw size={14} className="text-red-500" />
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Returns &amp; Net Revenue</h3>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide">Gross Sales</p>
+              <p className="text-lg font-bold text-gray-800 tabular-nums">{formatCurrency(stats.total)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide">Returns ({ret.count})</p>
+              <p className="text-lg font-bold text-red-600 tabular-nums">− {formatCurrency(ret.total)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide">Net Revenue</p>
+              <p className="text-lg font-bold text-green-700 tabular-nums">{formatCurrency(net.total)}</p>
+            </div>
+          </div>
+          <div className="border-t border-gray-100 pt-3 grid grid-cols-3 gap-3 text-xs">
+            {([
+              { label: 'Cash', gross: stats.cash, refund: ret.cash, net: net.cash },
+              { label: 'UPI', gross: stats.upi, refund: ret.upi, net: net.upi },
+              { label: 'Credit', gross: stats.credit, refund: ret.credit, net: net.credit },
+            ]).map(({ label, gross, refund, net: n }) => (
+              <div key={label} className="text-center">
+                <p className="font-semibold text-gray-600">{label}</p>
+                <p className="text-gray-400 tabular-nums">{formatCurrency(gross)}{refund > 0 && <span className="text-red-500"> − {formatCurrency(refund)}</span>}</p>
+                <p className="font-bold text-gray-800 tabular-nums">= {formatCurrency(n)}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-3">
+            Credit returns also reduce the customer's outstanding in the Credit Ledger. Cash/UPI returns are money refunded from the drawer.
+          </p>
+        </div>
+      )}
+
       {/* Payment Mode Breakdown */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Payment Mode Breakdown</h3>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Payment Mode Breakdown <span className="font-normal normal-case tracking-normal text-gray-400">· gross sales</span></h3>
         <div className="space-y-4">
           {[
             { label: 'Cash', value: stats.cash, bar: 'bg-green-500', text: 'text-green-700', pill: 'bg-green-50 text-green-700' },

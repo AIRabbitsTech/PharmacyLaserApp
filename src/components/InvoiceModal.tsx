@@ -1,20 +1,38 @@
-import { useState, useEffect } from 'react';
-import { X, User, Phone, Receipt, Check, Pencil, Printer } from 'lucide-react';
-import type { Sale } from '../types';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { X, User, Phone, Receipt, Check, Pencil, Printer, RotateCcw } from 'lucide-react';
+import type { Sale, SalesReturn } from '../types';
 import { formatCurrency, formatDate, formatGrandTotal } from '../utils/helpers';
 import { printInvoice } from '../utils/printInvoice';
+import { useSalesReturns } from '../hooks/useSalesReturns';
+import ReturnModal from './ReturnModal';
 
 interface InvoiceModalProps {
   sales: Sale[];
   onClose: () => void;
   onUpdateCustomer?: (invoiceNumber: string, customerName: string, mobileNumber: string) => Promise<boolean>;
+  // Opt-in: show the Return / Refund action (operational screens only).
+  allowReturn?: boolean;
+  // Called after a return is recorded, so the parent can refresh its data.
+  onReturnRecorded?: () => void;
 }
 
-export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: InvoiceModalProps) {
+export default function InvoiceModal({ sales, onClose, onUpdateCustomer, allowReturn, onReturnRecorded }: InvoiceModalProps) {
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftMobile, setDraftMobile] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showReturn, setShowReturn] = useState(false);
+
+  // Returns booked against this invoice — annotate the invoice so a refund is
+  // visible here (and staff don't re-collect money or re-return a full invoice).
+  const { fetchReturnsByInvoice } = useSalesReturns();
+  const [returns, setReturns] = useState<SalesReturn[]>([]);
+  const invoiceNumber = sales[0]?.invoice_number ?? '';
+  const loadReturns = useCallback(() => {
+    if (!invoiceNumber) return;
+    fetchReturnsByInvoice(invoiceNumber).then(setReturns);
+  }, [fetchReturnsByInvoice, invoiceNumber]);
+  useEffect(() => { loadReturns(); }, [loadReturns]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -51,6 +69,20 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
   );
   const billDiscount = first.bill_discount ?? 0;
 
+  // Returns roll-up for this invoice.
+  const returnedBySaleId = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of returns) {
+      if (r.original_sale_id) m[r.original_sale_id] = (m[r.original_sale_id] || 0) + r.quantity_returned;
+    }
+    return m;
+  }, [returns]);
+  const totalRefunded = returns.reduce((s, r) => s + r.refund_amount, 0);
+  const returnedUnits = returns.reduce((s, r) => s + r.quantity_returned, 0);
+  const soldUnits = sales.reduce((s, x) => s + x.quantity, 0);
+  const fullyReturned = returnedUnits > 0 && returnedUnits >= soldUnits;
+  const netPayable = Math.max(0, total - totalRefunded);
+
   const paymentBadge = (mode: string) => {
     if (mode === 'Cash') return <span className="badge-cash">{mode}</span>;
     if (mode === 'UPI') return <span className="badge-upi">{mode}</span>;
@@ -58,6 +90,7 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
   };
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
       onClick={onClose}
@@ -77,6 +110,14 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
             {paymentBadge(first.payment_mode)}
           </div>
           <div className="flex items-center gap-2">
+            {allowReturn && (
+              <button
+                onClick={() => setShowReturn(true)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <RotateCcw size={14} /> Return
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors"
@@ -159,6 +200,28 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
             </div>
           )}
 
+          {/* Returns against this invoice */}
+          {returns.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <RotateCcw size={15} />
+                  <span className="text-sm font-semibold">
+                    {fullyReturned ? 'Fully returned' : 'Partially returned'}
+                  </span>
+                </div>
+                <span className="text-xs text-amber-700">
+                  {returnedUnits} of {soldUnits} units · {returns.length} refund{returns.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                <span className="text-gray-600">Original <span className="font-semibold tabular-nums">{formatGrandTotal(total)}</span></span>
+                <span className="text-gray-600">Refunded <span className="font-semibold text-red-600 tabular-nums">− {formatCurrency(totalRefunded)}</span></span>
+                <span className="text-gray-600">Net <span className="font-bold text-green-700 tabular-nums">{formatGrandTotal(netPayable)}</span></span>
+              </div>
+            </div>
+          )}
+
           {/* Medicines table */}
           <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table className="min-w-full">
@@ -178,7 +241,14 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
                 {sales.map((sale, idx) => (
                   <tr key={sale.id} className="hover:bg-gray-50 transition-colors">
                     <td className="table-cell text-gray-400 text-xs">{idx + 1}</td>
-                    <td className="table-cell font-medium">{sale.medicine_name}</td>
+                    <td className="table-cell font-medium">
+                      {sale.medicine_name}
+                      {returnedBySaleId[sale.id] > 0 && (
+                        <span className="block text-xs font-normal text-red-500">
+                          ↺ {returnedBySaleId[sale.id]} of {sale.quantity} returned
+                        </span>
+                      )}
+                    </td>
                     <td className="hidden sm:table-cell px-3 py-3 text-xs text-gray-500 border-b border-gray-100">
                       {sale.batch_number || '-'}
                     </td>
@@ -225,5 +295,14 @@ export default function InvoiceModal({ sales, onClose, onUpdateCustomer }: Invoi
         </div>
       </div>
     </div>
+
+    {allowReturn && showReturn && (
+      <ReturnModal
+        sales={sales}
+        onClose={() => setShowReturn(false)}
+        onRecorded={() => { onReturnRecorded?.(); loadReturns(); }}
+      />
+    )}
+    </>
   );
 }

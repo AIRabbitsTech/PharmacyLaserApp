@@ -1,7 +1,8 @@
-import { useEffect, useRef, useMemo } from 'react';
-import { Plus, Trash2, Copy } from 'lucide-react';
+import { useEffect, useRef, useMemo, useState } from 'react';
+import { Plus, Trash2, Copy, AlertTriangle } from 'lucide-react';
 import type { SaleFormData, MedicineItem, PaymentMode } from '../types';
 import { formatGrandTotal } from '../utils/helpers';
+import { canonicalizeMedicineName } from '../utils/medicine';
 import AutocompleteInput from './AutocompleteInput';
 
 const paymentModes: PaymentMode[] = ['Cash', 'UPI', 'Credit'];
@@ -19,6 +20,8 @@ interface SaleFormProps {
   customerSuggestions?: string[];
   mobileSuggestions?: string[];
   medicineSuggestions?: string[];
+  // mobile -> distinct names already on file, used to flag a shared/mismatched number
+  mobileOwners?: Map<string, string[]>;
   onMedicineNameSelect?: (index: number, name: string) => void;
   submitLabel?: string;
 }
@@ -47,12 +50,22 @@ export default function SaleForm({
   customerSuggestions = [],
   mobileSuggestions = [],
   medicineSuggestions = [],
+  mobileOwners,
   onMedicineNameSelect,
   submitLabel,
 }: SaleFormProps) {
   const lastRowRef = useRef<HTMLTableRowElement>(null);
   const lastMedInputRef = useRef<HTMLInputElement>(null);
   const prevCount = useRef(formData.medicines.length);
+  const [dismissedMobile, setDismissedMobile] = useState('');
+
+  // Warn (don't block) when the entered mobile is already on file under a
+  // different name — a typo'd duplicate or a shared household number.
+  const mob = formData.mobile_number.trim();
+  const typedName = formData.customer_name.trim().toLowerCase();
+  const conflictOwners = (mob.length >= 10 ? mobileOwners?.get(mob) ?? [] : [])
+    .filter((n) => n.trim().toLowerCase() !== typedName);
+  const showMobileWarning = conflictOwners.length > 0 && mob !== dismissedMobile;
 
   const blockEnterOnInputs = (e: React.KeyboardEvent<HTMLFormElement>) => {
     const tag = (e.target as HTMLElement).tagName;
@@ -88,7 +101,7 @@ export default function SaleForm({
           <div className="col-span-2">
             <label className="label">Medicine Name *</label>
             <input type="text" className="input-field" value={med.medicine_name}
-              onChange={(e) => onMedicineChange(0, 'medicine_name', e.target.value)} required />
+              onChange={(e) => onMedicineChange(0, 'medicine_name', e.target.value.toUpperCase())} required />
           </div>
           <div>
             <label className="label">Batch No</label>
@@ -160,24 +173,6 @@ export default function SaleForm({
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Customer Info</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label">Customer Name</label>
-            <AutocompleteInput
-              value={formData.customer_name}
-              onChange={(v) => {
-                const sepIdx = v.indexOf(' | ');
-                if (sepIdx !== -1) {
-                  onFieldChange('customer_name', v.slice(0, sepIdx));
-                  onFieldChange('mobile_number', v.slice(sepIdx + 3));
-                } else {
-                  onFieldChange('customer_name', v);
-                }
-              }}
-              suggestions={customerSuggestions}
-              placeholder="Optional"
-              className="input-field"
-            />
-          </div>
-          <div>
             <label className="label">Mobile Number</label>
             <AutocompleteInput
               value={formData.mobile_number}
@@ -198,7 +193,60 @@ export default function SaleForm({
               maxLength={10}
             />
           </div>
+          <div>
+            <label className="label">Customer Name</label>
+            <AutocompleteInput
+              value={formData.customer_name}
+              onChange={(v) => {
+                const sepIdx = v.indexOf(' | ');
+                if (sepIdx !== -1) {
+                  onFieldChange('customer_name', v.slice(0, sepIdx));
+                  onFieldChange('mobile_number', v.slice(sepIdx + 3));
+                } else {
+                  onFieldChange('customer_name', v);
+                }
+              }}
+              suggestions={customerSuggestions}
+              placeholder="Optional"
+              className="input-field"
+              uppercase
+            />
+          </div>
         </div>
+
+        {/* Soft warning: mobile already linked to a different customer */}
+        {showMobileWarning && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <AlertTriangle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 text-sm">
+              <p className="text-amber-800">
+                Mobile <span className="font-semibold">{mob}</span> is already registered with{' '}
+                {conflictOwners.map((n, i) => (
+                  <span key={n}>{i > 0 ? ', ' : ''}<span className="font-semibold">{n}</span></span>
+                ))}.
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                {conflictOwners.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => { onFieldChange('customer_name', n); setDismissedMobile(mob); }}
+                    className="text-xs font-semibold text-amber-800 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-full transition-colors"
+                  >
+                    Use "{n}"
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDismissedMobile(mob)}
+                  className="text-xs font-medium text-amber-600 hover:text-amber-800 px-1.5 py-1"
+                >
+                  Different person — keep "{formData.customer_name.trim() || 'no name'}"
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Medicine Grid ──────────────────────────────────────────────────── */}
@@ -255,9 +303,11 @@ export default function SaleForm({
                         value={med.medicine_name}
                         onChange={(v) => onMedicineChange(idx, 'medicine_name', v)}
                         onSelect={(v) => onMedicineNameSelect?.(idx, v)}
+                        transformOnBlur={(v) => canonicalizeMedicineName(v, medicineSuggestions)}
                         suggestions={medicineSuggestions}
                         placeholder="Enter medicine name"
                         className={ci}
+                        uppercase
                       />
                     </td>
 

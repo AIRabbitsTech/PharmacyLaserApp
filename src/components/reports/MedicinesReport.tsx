@@ -5,6 +5,7 @@ import { formatCurrency } from '../../utils/helpers';
 
 interface Props {
   sales: Sale[];
+  search?: string;
 }
 
 type SortKey = 'revenue' | 'qty' | 'invoices';
@@ -59,22 +60,27 @@ function SortButton({ label, active, onClick }: { label: string; active: boolean
   );
 }
 
-export default function MedicinesReport({ sales }: Props) {
+export default function MedicinesReport({ sales, search = '' }: Props) {
   const [subTab, setSubTab] = useState<'top' | 'slow'>('top');
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
 
   const allRows = useMemo(() => buildRows(sales), [sales]);
   const totalRevenue = useMemo(() => allRows.reduce((s, r) => s + r.revenue, 0), [allRows]);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? allRows.filter((r) => r.name.toLowerCase().includes(q)) : allRows;
+  }, [allRows, search]);
+
   const sorted = useMemo(() => {
-    const copy = [...allRows];
+    const copy = [...filteredRows];
     if (subTab === 'top') {
       copy.sort((a, b) => b[sortKey] - a[sortKey]);
     } else {
       copy.sort((a, b) => a.revenue - b.revenue);
     }
     return copy;
-  }, [allRows, subTab, sortKey]);
+  }, [filteredRows, subTab, sortKey]);
 
   if (sales.length === 0) {
     return <p className="text-center py-16 text-gray-400 text-sm">No sales data for this period.</p>;
@@ -132,6 +138,11 @@ export default function MedicinesReport({ sales }: Props) {
             </tr>
           </thead>
           <tbody>
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={7} className="text-center py-10 text-gray-400 text-sm">No medicines match "{search}"</td>
+              </tr>
+            )}
             {sorted.map((row, idx) => {
               const share = totalRevenue > 0 ? (row.revenue / totalRevenue) * 100 : 0;
               return (

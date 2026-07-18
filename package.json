@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:unit": "playwright test -c playwright.unit.config.ts",
     "start": "vite preview --host 0.0.0.0 --port $PORT"
   },
   "dependencies": {

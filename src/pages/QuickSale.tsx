@@ -6,7 +6,7 @@ import SaleForm from '../components/SaleForm';
 import InvoiceModal from '../components/InvoiceModal';
 import { useSales } from '../hooks/useSales';
 import { useSuggestions } from '../hooks/useSuggestions';
-import { formatGrandTotal } from '../utils/helpers';
+import { formatGrandTotal, parseExpiryMonth, isExpiredExpiry } from '../utils/helpers';
 import type { Sale, SaleFormData, MedicineItem } from '../types';
 
 const EMPTY_MEDICINE: MedicineItem = {
@@ -49,14 +49,24 @@ function validate(data: SaleFormData): string | null {
     if (!qty || qty <= 0) return `Quantity must be > 0${label}`;
     const mrp = parseFloat(med.mrp);
     if (isNaN(mrp) || mrp <= 0) return `MRP must be > 0${label}`;
+    const exp = med.expiry_date.trim();
+    if (exp) {
+      if (!parseExpiryMonth(exp)) return `Expiry must be a valid month as MM/YY${label}`;
+      if (isExpiredExpiry(exp)) return `Cannot sell expired medicine (exp ${exp})${label}`;
+    }
   }
   if (!data.payment_mode) return 'Please select a payment mode';
+  // A credit sale MUST identify the customer — otherwise the receivable can't be
+  // linked to anyone (customer_id stays NULL) and it silently drops out of the
+  // outstanding ledger while still counting in Today's Credit Sales.
+  if (data.payment_mode === 'Credit' && !data.customer_name.trim())
+    return 'Customer Name is mandatory for Credit transactions.';
   return null;
 }
 
 export default function QuickSale() {
   const { createSale, loading } = useSales();
-  const { customers, mobiles, medicines, medicineDetails, mobileToCustomer } = useSuggestions();
+  const { customers, mobiles, medicines, medicineDetails, mobileToCustomer, mobileOwners } = useSuggestions();
   const [searchParams] = useSearchParams();
   const [formData, setFormData] = useState<SaleFormData>(
     makeEmptyForm(searchParams.get('customer') || '', searchParams.get('mobile') || ''),
@@ -72,7 +82,9 @@ export default function QuickSale() {
       setFormData((prev) => ({
         ...prev,
         mobile_number: value,
-        ...(matched ? { customer_name: matched } : {}),
+        // Autofill the name only when it's empty — never overwrite a name the
+        // operator already typed (a shared number must not silently rename them).
+        ...(matched && !prev.customer_name.trim() ? { customer_name: matched } : {}),
       }));
     } else {
       setFormData((prev) => ({ ...prev, [field]: value }));
@@ -212,6 +224,7 @@ export default function QuickSale() {
           customerSuggestions={customers}
           mobileSuggestions={mobiles}
           medicineSuggestions={medicines}
+          mobileOwners={mobileOwners}
           onMedicineNameSelect={handleMedicineNameSelect}
         />
       </div>

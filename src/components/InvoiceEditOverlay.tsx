@@ -4,6 +4,7 @@ import { X, AlertTriangle } from 'lucide-react';
 import SaleForm from './SaleForm';
 import { useSales } from '../hooks/useSales';
 import { useSuggestions } from '../hooks/useSuggestions';
+import { parseExpiryMonth, isExpiredExpiry } from '../utils/helpers';
 import type { Sale, SaleFormData, MedicineItem } from '../types';
 
 interface InvoiceEditOverlayProps {
@@ -140,6 +141,11 @@ export default function InvoiceEditOverlay({ sales, onClose, onSaved }: InvoiceE
   const doSave = async () => {
     const filled = formData.medicines.filter((m) => m.medicine_name.trim());
     if (filled.length === 0) { toast.error('At least one medicine is required'); return; }
+    // Mirror QuickSale: a Credit sale must name the customer, else the receivable
+    // can't be linked (customer_id NULL) and drops out of the outstanding ledger.
+    if (formData.payment_mode === 'Credit' && !formData.customer_name.trim()) {
+      toast.error('Customer Name is mandatory for Credit transactions.'); return;
+    }
     for (let i = 0; i < filled.length; i++) {
       const med = filled[i];
       const label = filled.length > 1 ? ` (Medicine ${i + 1})` : '';
@@ -148,6 +154,11 @@ export default function InvoiceEditOverlay({ sales, onClose, onSaved }: InvoiceE
       }
       if (!parseFloat(med.mrp) || parseFloat(med.mrp) <= 0) {
         toast.error(`MRP must be > 0${label}`); return;
+      }
+      const exp = med.expiry_date.trim();
+      if (exp) {
+        if (!parseExpiryMonth(exp)) { toast.error(`Expiry must be a valid month as MM/YY${label}`); return; }
+        if (isExpiredExpiry(exp)) { toast.error(`Cannot sell expired medicine (exp ${exp})${label}`); return; }
       }
     }
 

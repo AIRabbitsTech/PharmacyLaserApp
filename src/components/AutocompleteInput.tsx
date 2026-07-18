@@ -11,6 +11,14 @@ interface Props {
   autoFocus?: boolean;
   inputType?: string;
   maxLength?: number;
+  // Force typed input to UPPERCASE as the user types (applied on keystrokes
+  // only, never to a picked suggestion — selecting must keep the exact stored
+  // spelling so lookups keyed on it, e.g. medicine details, still resolve).
+  uppercase?: boolean;
+  // Optional canonicalizer run when the field loses focus. If it returns a
+  // different string, the value is committed via onChange — used to snap a typed
+  // medicine name onto its canonical spelling so no new variant is created.
+  transformOnBlur?: (value: string) => string;
 }
 
 const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function AutocompleteInput({
@@ -24,6 +32,8 @@ const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function Autocompl
   autoFocus,
   inputType = 'text',
   maxLength,
+  uppercase,
+  transformOnBlur,
 }, forwardedRef) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -35,10 +45,21 @@ const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function Autocompl
   } as React.RefObject<HTMLInputElement>;
   const listRef = useRef<HTMLUListElement>(null);
 
-  // Filter: show all (up to 8) on empty, filter on typing
-  const filtered = value.trim().length > 0
-    ? suggestions.filter((s) => s.toLowerCase().includes(value.toLowerCase())).slice(0, 8)
-    : suggestions.slice(0, 8);
+  // Filter on typing. Rank prefix matches ahead of mid-string matches so the
+  // most relevant names surface, then cap at 50 (the dropdown scrolls). Capping
+  // at a small number previously hid every match past the 8th alphabetically.
+  const MAX_RESULTS = 50;
+  const q = value.trim().toLowerCase();
+  const filtered = q.length > 0
+    ? suggestions
+        .filter((s) => s.toLowerCase().includes(q))
+        .sort((a, b) => {
+          const aPrefix = a.toLowerCase().startsWith(q) ? 0 : 1;
+          const bPrefix = b.toLowerCase().startsWith(q) ? 0 : 1;
+          return aPrefix - bPrefix || a.localeCompare(b);
+        })
+        .slice(0, MAX_RESULTS)
+    : suggestions.slice(0, MAX_RESULTS);
 
   const calcPosition = () => {
     if (!inputRef.current) return;
@@ -148,8 +169,15 @@ const AutocompleteInput = forwardRef<HTMLInputElement, Props>(function Autocompl
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        onChange={(e) => { onChange(e.target.value); openDrop(); }}
+        onChange={(e) => { onChange(uppercase ? e.target.value.toUpperCase() : e.target.value); openDrop(); }}
         onFocus={openDrop}
+        onBlur={() => {
+          // Selecting a suggestion uses onMouseDown+preventDefault, so this
+          // only fires on a real blur (tabbing/clicking away) — safe to snap.
+          if (!transformOnBlur || !value.trim()) return;
+          const next = transformOnBlur(value);
+          if (next !== value) onChange(next);
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}

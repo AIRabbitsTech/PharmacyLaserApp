@@ -1,99 +1,92 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, User, Phone, CreditCard } from 'lucide-react';
-import type { Sale } from '../../types';
+import type { Sale, SalesReturn } from '../../types';
 import { formatGrandTotal, formatDate } from '../../utils/helpers';
+import {
+  computeOutstandingByCustomer,
+  customerKey,
+  type CreditPaymentLike,
+  type OutstandingCustomer,
+  type OutstandingInvoice,
+} from '../../utils/credit';
+import type { OutstandingCustomerRow } from '../../hooks/useCustomerOutstanding';
 import InvoiceModal from '../InvoiceModal';
-
-interface CreditPayment {
-  customer_name: string;
-  amount: number;
-}
 
 interface Props {
   sales: Sale[];
   allSales: Sale[];
-  creditPayments: CreditPayment[];
+  creditPayments: CreditPaymentLike[];
+  // Returns within the selected period — Credit-mode returns reduce a customer's
+  // period outstanding (mirrors the customer_outstanding SQL view).
+  returns?: SalesReturn[];
+  // Authoritative all-time outstanding from the customer_outstanding SQL view.
+  // null when the view is unavailable → fall back to the client-side computation.
+  outstandingRows: OutstandingCustomerRow[] | null;
+  search?: string;
 }
 
-interface InvoiceSummary {
-  invoice_number: string;
-  date: string;
-  amount: number;
-  medicines: number;
-  group: Sale[];
-}
-
-interface CustomerCreditRow {
-  key: string;
-  name: string;
-  mobile: string;
-  invoices: InvoiceSummary[];
-  total: number;
-  lastDate: string;
-}
-
-function buildCreditRows(sales: Sale[], payments: CreditPayment[]): CustomerCreditRow[] {
-  const creditSales = sales.filter((s) => s.payment_mode === 'Credit');
-
-  // Group by invoice first
-  const invMap = new Map<string, Sale[]>();
-  for (const s of creditSales) {
-    if (!invMap.has(s.invoice_number)) invMap.set(s.invoice_number, []);
-    invMap.get(s.invoice_number)!.push(s);
-  }
-
-  // Group invoices by customer
-  const custMap = new Map<string, CustomerCreditRow>();
-  for (const [inv, group] of invMap.entries()) {
-    const first = group[0];
-    const name = first.customer_name?.trim() || '(Anonymous)';
-    const mobile = first.mobile_number?.trim() || '';
-    const key = `${name.toLowerCase()}||${mobile}`;
-    const invAmount = group.reduce((s, x) => s + x.total_amount, 0);
-
-    if (!custMap.has(key)) {
-      custMap.set(key, { key, name, mobile, invoices: [], total: 0, lastDate: first.sale_date });
-    }
-    const row = custMap.get(key)!;
-    row.invoices.push({ invoice_number: inv, date: first.sale_date, amount: invAmount, medicines: group.length, group });
-    row.total += invAmount;
-    if (first.sale_date > row.lastDate) row.lastDate = first.sale_date;
-  }
-
-  // Build payments map keyed by customer name (same approach as Dashboard)
-  const paymentsMap = new Map<string, number>();
-  for (const p of payments) {
-    const key = (p.customer_name || '').trim().toLowerCase();
-    paymentsMap.set(key, (paymentsMap.get(key) || 0) + p.amount);
-  }
-
-  // Subtract payments and remove fully-paid customers
-  return [...custMap.values()]
-    .map((row) => ({
-      ...row,
-      total: Math.max(0, row.total - (paymentsMap.get(row.name.toLowerCase()) || 0)),
-    }))
-    .filter((row) => row.total > 0)
-    .sort((a, b) => b.total - a.total);
-}
-
-export default function CreditReport({ sales, allSales, creditPayments }: Props) {
+export default function CreditReport({ sales, allSales, creditPayments, returns = [], outstandingRows, search = '' }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
 
-  // Current period credit rows (net of all payments)
-  const periodRows = useMemo(() => buildCreditRows(sales, creditPayments), [sales, creditPayments]);
-  const periodTotal = useMemo(() => periodRows.reduce((s, r) => s + r.total, 0), [periodRows]);
+  // Current period credit rows (net of all payments AND Credit-mode returns).
+  const periodRows = useMemo(
+    () => computeOutstandingByCustomer(sales, creditPayments, returns),
+    [sales, creditPayments, returns],
+  );
 
-  // All-time credit rows (net of all payments)
-  const allTimeRows = useMemo(() => buildCreditRows(allSales, creditPayments), [allSales, creditPayments]);
-  const allTimeTotal = useMemo(() => allTimeRows.reduce((s, r) => s + r.total, 0), [allTimeRows]);
+  // Per-customer invoice breakdown (for the expandable drill-down), keyed by the
+  // same canonical customer key the SQL view uses.
+  const invoicesByKey = useMemo(() => {
+    const invMap = new Map<string, Sale[]>();
+    for (const s of allSales) {
+      if (s.payment_mode !== 'Credit') continue;
+      if (!invMap.has(s.invoice_number)) invMap.set(s.invoice_number, []);
+      invMap.get(s.invoice_number)!.push(s);
+    }
+    const byKey = new Map<string, OutstandingInvoice<Sale>[]>();
+    for (const [inv, group] of invMap.entries()) {
+      const first = group[0];
+      const key = customerKey(first.customer_name, first.mobile_number);
+      const amount = group.reduce((s, x) => s + x.total_amount, 0);
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push({ invoice_number: inv, date: first.sale_date, amount, medicines: group.length, group });
+    }
+    return byKey;
+  }, [allSales]);
+
+  // All-time credit rows. Prefer the SQL view (authoritative totals); attach the
+  // invoice breakdown for drill-down. Fall back to the client-side computation.
+  const allTimeRows = useMemo<OutstandingCustomer<Sale>[]>(() => {
+    if (outstandingRows) {
+      return outstandingRows.map((r) => ({
+        key: r.customer_key,
+        name: r.customer_name,
+        mobile: r.mobile_number,
+        total: r.outstanding,
+        lastDate: r.last_sale_date,
+        invoices: invoicesByKey.get(r.customer_key) ?? [],
+      }));
+    }
+    // Degraded fallback (SQL view down): returns are NOT applied here because
+    // only period-scoped returns are loaded, and subtracting those from all-time
+    // sales would be wrong. The authoritative all-time path above (the SQL view)
+    // already nets Credit returns correctly.
+    return computeOutstandingByCustomer(allSales, creditPayments);
+  }, [outstandingRows, invoicesByKey, allSales, creditPayments]);
 
   const [view, setView] = useState<'period' | 'alltime'>('alltime');
-  const rows = view === 'period' ? periodRows : allTimeRows;
-  const grandTotal = view === 'period' ? periodTotal : allTimeTotal;
+  const baseRows = view === 'period' ? periodRows : allTimeRows;
 
-  if (rows.length === 0) {
+  // Filter by customer name / mobile. Totals reflect what's listed.
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return baseRows;
+    return baseRows.filter((r) => r.name.toLowerCase().includes(q) || (r.mobile || '').includes(q));
+  }, [baseRows, search]);
+  const grandTotal = useMemo(() => rows.reduce((s, r) => s + r.total, 0), [rows]);
+
+  if (baseRows.length === 0) {
     return (
       <div className="text-center py-16 text-gray-400">
         <CreditCard size={40} className="mx-auto text-gray-300 mb-3" />
@@ -134,7 +127,12 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
           <p className="text-2xl font-bold text-orange-700 tabular-nums">{formatGrandTotal(grandTotal)}</p>
         </div>
 
+        {rows.length === 0 && (
+          <p className="text-center py-10 text-gray-400 text-sm">No customers match "{search}"</p>
+        )}
+
         {/* Customer rows */}
+        {rows.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="min-w-full">
             <thead>
@@ -236,6 +234,7 @@ export default function CreditReport({ sales, allSales, creditPayments }: Props)
             </tfoot>
           </table>
         </div>
+        )}
       </div>
 
       {selectedInvoice && (

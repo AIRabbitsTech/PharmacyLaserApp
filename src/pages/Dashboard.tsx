@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Banknote, Smartphone, CreditCard, ShoppingCart,
-  PlusCircle, TrendingUp, TrendingDown,
+  PlusCircle, TrendingUp, TrendingDown, RotateCcw,
 } from 'lucide-react';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import toast from 'react-hot-toast';
 import { useSales } from '../hooks/useSales';
 import { useCreditPayments } from '../hooks/useCreditPayments';
+import { useCustomerOutstanding } from '../hooks/useCustomerOutstanding';
+import { useSalesReturns } from '../hooks/useSalesReturns';
 import { supabase } from '../utils/supabase';
 import type { Sale, DashboardStats } from '../types';
 import { formatCurrency, formatDateTime, todayISO } from '../utils/helpers';
 import InvoiceModal from '../components/InvoiceModal';
 import CreditModal, { type CustomerCredit } from '../components/CreditModal';
+import { computeOutstandingByCustomer, customerKey } from '../utils/credit';
 
 function groupByInvoice(sales: Sale[]): Sale[][] {
   const map = new Map<string, Sale[]>();
@@ -74,6 +77,8 @@ interface PeriodTotals {
 export default function Dashboard() {
   const { fetchSalesByDateRange } = useSales();
   const { recordPayment } = useCreditPayments();
+  const { fetchOutstanding } = useCustomerOutstanding();
+  const { fetchReturnsByDateRange } = useSalesReturns();
   const [sales, setSales] = useState<Sale[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Sale[] | null>(null);
@@ -90,8 +95,10 @@ export default function Dashboard() {
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [todayCreditByCustomer, setTodayCreditByCustomer] = useState<CustomerCredit[]>([]);
   const [showTodayCreditModal, setShowTodayCreditModal] = useState(false);
+  const [todayReturns, setTodayReturns] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
+  const [returnedInvoices, setReturnedInvoices] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     const now = new Date();
     const todayStr = todayISO();
     const yesterdayStr = format(subDays(now, 1), 'yyyy-MM-dd');
@@ -99,62 +106,62 @@ export default function Dashboard() {
     const lastMonthStart = format(startOfMonth(subMonths(now, 1)), 'yyyy-MM-dd');
     const lastMonthEnd = format(endOfMonth(subMonths(now, 1)), 'yyyy-MM-dd');
 
-    Promise.all([
-      fetchSalesByDateRange(todayStr, todayStr),
-      fetchSalesByDateRange(yesterdayStr, yesterdayStr),
-      fetchSalesByDateRange(thisMonthStart, todayStr),
-      fetchSalesByDateRange(lastMonthStart, lastMonthEnd),
-      supabase.from('sales').select('customer_name, mobile_number, total_amount').eq('payment_mode', 'Credit'),
-      supabase.from('credit_payments').select('customer_name, amount'),
-    ]).then(([todayData, ydayData, thisMonthData, lastMonthData, creditRes, paymentsRes]) => {
-      const uniqueInvoices = (arr: Sale[]) =>
-        new Set(arr.map((s) => s.invoice_number)).size;
+    const [todayData, ydayData, thisMonthData, lastMonthData, creditRes, paymentsRes, outstandingRows, allReturns] =
+      await Promise.all([
+        fetchSalesByDateRange(todayStr, todayStr),
+        fetchSalesByDateRange(yesterdayStr, yesterdayStr),
+        fetchSalesByDateRange(thisMonthStart, todayStr),
+        fetchSalesByDateRange(lastMonthStart, lastMonthEnd),
+        supabase.from('sales').select('customer_name, mobile_number, total_amount, invoice_number, sale_date, payment_mode').eq('payment_mode', 'Credit'),
+        supabase.from('credit_payments').select('customer_name, mobile_number, amount'),
+        fetchOutstanding(),
+        fetchReturnsByDateRange('2020-01-01', todayStr),
+      ]);
 
-      setSales(todayData);
-      setStats(computeStats(todayData));
+    const uniqueInvoices = (arr: Sale[]) =>
+      new Set(arr.map((s) => s.invoice_number)).size;
 
-      // Today's credit breakdown by customer
-      const todayCreditMap = new Map<string, CustomerCredit>();
-      todayData.filter((x) => x.payment_mode === 'Credit').forEach((x) => {
-        const key = x.customer_name || '—';
-        if (!todayCreditMap.has(key)) {
-          todayCreditMap.set(key, { name: x.customer_name || '—', mobile: x.mobile_number || '', amount: 0 });
-        }
-        todayCreditMap.get(key)!.amount += x.total_amount;
-      });
-      setTodayCreditByCustomer([...todayCreditMap.values()].sort((a, b) => b.amount - a.amount));
-      setToday({ total: todayData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(todayData) });
-      setYesterday({ total: ydayData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(ydayData) });
-      setThisMonth({ total: thisMonthData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(thisMonthData) });
-      setLastMonth({ total: lastMonthData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(lastMonthData) });
+    setSales(todayData);
+    setStats(computeStats(todayData));
 
-      // Build gross credit map
-      const creditRows = creditRes.data || [];
-      const creditMap = new Map<string, CustomerCredit>();
-      creditRows.forEach((r: { customer_name: string; mobile_number: string; total_amount: number }) => {
-        const key = r.customer_name || '—';
-        if (!creditMap.has(key)) {
-          creditMap.set(key, { name: r.customer_name || '—', mobile: r.mobile_number || '', amount: 0 });
-        }
-        creditMap.get(key)!.amount += r.total_amount || 0;
-      });
-
-      // Subtract payments to get net outstanding
-      const paymentsRows = paymentsRes.data || [];
-      const paymentsMap = new Map<string, number>();
-      paymentsRows.forEach((r: { customer_name: string; amount: number }) => {
-        paymentsMap.set(r.customer_name, (paymentsMap.get(r.customer_name) || 0) + r.amount);
-      });
-      const byCustomer = [...creditMap.values()]
-        .map((c) => ({ ...c, amount: Math.max(0, c.amount - (paymentsMap.get(c.name) || 0)) }))
-        .filter((c) => c.amount > 0)
-        .sort((a, b) => b.amount - a.amount);
-
-      setCreditByCustomer(byCustomer);
-      setAllTimeCredit(byCustomer.reduce((s, c) => s + c.amount, 0));
-      setDataLoaded(true);
+    // Today's returns (refunded amount, netted against today's figures).
+    const todayReturnRows = allReturns.filter((r) => r.return_date === todayStr);
+    setTodayReturns({
+      total: todayReturnRows.reduce((s, r) => s + r.refund_amount, 0),
+      count: todayReturnRows.length,
     });
-  }, [fetchSalesByDateRange]);
+    // Invoices with any return booked against them — for the Recent Transactions flag.
+    setReturnedInvoices(new Set(allReturns.map((r) => r.original_invoice_number)));
+
+    // Today's credit breakdown by customer
+    const todayCreditMap = new Map<string, CustomerCredit>();
+    todayData.filter((x) => x.payment_mode === 'Credit').forEach((x) => {
+      const key = customerKey(x.customer_name, x.mobile_number);
+      if (!todayCreditMap.has(key)) {
+        todayCreditMap.set(key, { name: x.customer_name || '—', mobile: x.mobile_number || '', amount: 0 });
+      }
+      todayCreditMap.get(key)!.amount += x.total_amount;
+    });
+    setTodayCreditByCustomer([...todayCreditMap.values()].sort((a, b) => b.amount - a.amount));
+    setToday({ total: todayData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(todayData) });
+    setYesterday({ total: ydayData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(ydayData) });
+    setThisMonth({ total: thisMonthData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(thisMonthData) });
+    setLastMonth({ total: lastMonthData.reduce((s, x) => s + x.total_amount, 0), invoices: uniqueInvoices(lastMonthData) });
+
+    // Net outstanding per customer. Prefer the authoritative customer_outstanding
+    // SQL view (already net of Credit returns); fall back to the shared client-side
+    // computation — passing returns so the fallback stays in lockstep with the view.
+    const byCustomer: CustomerCredit[] = outstandingRows
+      ? outstandingRows.map((row) => ({ customer_id: row.customer_id, name: row.customer_name, mobile: row.mobile_number, amount: row.outstanding }))
+      : computeOutstandingByCustomer(creditRes.data || [], paymentsRes.data || [], allReturns)
+          .map((row) => ({ name: row.name, mobile: row.mobile, amount: row.total }));
+
+    setCreditByCustomer(byCustomer);
+    setAllTimeCredit(byCustomer.reduce((s, c) => s + c.amount, 0));
+    setDataLoaded(true);
+  }, [fetchSalesByDateRange, fetchOutstanding, fetchReturnsByDateRange]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handlePayOff = async (
     customer: CustomerCredit,
@@ -166,6 +173,7 @@ export default function Dashboard() {
     const ok = await recordPayment({
       customer_name: customer.name,
       mobile_number: customer.mobile || undefined,
+      customer_id: customer.customer_id ?? undefined,
       amount,
       payment_mode: mode,
       paid_date: date,
@@ -174,9 +182,10 @@ export default function Dashboard() {
     if (ok) {
       toast.success(`Payment of ${formatCurrency(amount)} recorded for ${customer.name}`);
       // Optimistic update — subtract from local state immediately
+      const paidKey = customerKey(customer.name, customer.mobile);
       setCreditByCustomer((prev) =>
         prev
-          .map((c) => c.name === customer.name ? { ...c, amount: Math.max(0, c.amount - amount) } : c)
+          .map((c) => customerKey(c.name, c.mobile) === paidKey ? { ...c, amount: Math.max(0, c.amount - amount) } : c)
           .filter((c) => c.amount > 0),
       );
       setAllTimeCredit((prev) => Math.max(0, prev - amount));
@@ -209,6 +218,20 @@ export default function Dashboard() {
           <span className="hidden sm:inline">New Sale</span>
         </Link>
       </div>
+
+      {/* Returns today — shown only when something was refunded today */}
+      {!loading && todayReturns.count > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-2.5 text-sm">
+          <RotateCcw size={15} className="text-red-500 shrink-0" />
+          <span className="text-gray-600">
+            Returns today: <span className="font-bold text-red-600">{formatCurrency(todayReturns.total)}</span> refunded
+            <span className="text-gray-400"> · {todayReturns.count} {todayReturns.count === 1 ? 'item' : 'items'}</span>
+          </span>
+          <span className="text-gray-400 text-xs ml-auto hidden sm:inline">
+            Net sales today: {formatCurrency(today.total - todayReturns.total)}
+          </span>
+        </div>
+      )}
 
       {/* Today's Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -355,12 +378,22 @@ export default function Dashboard() {
                   return (
                     <tr key={first.invoice_number} className="hover:bg-gray-50 transition-colors">
                       <td className="table-cell">
-                        <button
-                          onClick={() => setSelectedInvoice(group)}
-                          className="font-mono text-xs text-blue-600 hover:underline font-semibold"
-                        >
-                          {first.invoice_number}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedInvoice(group)}
+                            className="font-mono text-xs text-blue-600 hover:underline font-semibold"
+                          >
+                            {first.invoice_number}
+                          </button>
+                          {returnedInvoices.has(first.invoice_number) && (
+                            <span
+                              title="This invoice has a return / refund"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold"
+                            >
+                              <RotateCcw size={10} /> Returned
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="table-cell text-gray-700 max-w-[160px] truncate">{first.customer_name || '—'}</td>
                       <td className="table-cell text-right font-semibold text-gray-900">{formatCurrency(groupTotal)}</td>
@@ -379,6 +412,8 @@ export default function Dashboard() {
         <InvoiceModal
           sales={selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
+          allowReturn
+          onReturnRecorded={loadData}
         />
       )}
 
@@ -394,6 +429,9 @@ export default function Dashboard() {
       {showTodayCreditModal && (
         <CreditModal
           title="Today's Credit Sales"
+          subtitle="Credit sold today, per customer"
+          totalLabel="Total Credit Sales Today"
+          amountLabel="Amount"
           customers={todayCreditByCustomer}
           total={stats.creditSales}
           onClose={() => setShowTodayCreditModal(false)}

@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import type { Sale, SaleFormData } from '../types';
 import { todayISO, generateInvoiceNumber, roundGrandTotal } from '../utils/helpers';
+import { normalizeMedicineName } from '../utils/medicine';
 
 export function useSales() {
   const [loading, setLoading] = useState(false);
@@ -11,14 +12,25 @@ export function useSales() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from('sales')
-        .select('*')
-        .gte('sale_date', startDate)
-        .lte('sale_date', endDate)
-        .order('created_at', { ascending: false });
-      if (err) throw err;
-      return data || [];
+      // Page through in 1000-row chunks — PostgREST caps a single response at
+      // 1000 rows, so a large date range would otherwise be silently truncated.
+      const PAGE = 1000;
+      const all: Sale[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: err } = await supabase
+          .from('sales')
+          .select('*')
+          .gte('sale_date', startDate)
+          .lte('sale_date', endDate)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (err) throw err;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+      }
+      return all;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch sales';
       setError(msg);
@@ -34,16 +46,26 @@ export function useSales() {
   }, [fetchSalesByDateRange]);
 
   const getNextInvoiceNumber = useCallback(async (): Promise<string> => {
+    // Derive the next number from the HIGHEST existing canonical invoice
+    // number — NOT the most-recently-created row. Editing an old bill (or an
+    // import) inserts a row whose created_at is newest but whose number is not
+    // the latest; keying off that row made the next sale reuse an existing
+    // number, so two different customers could share one invoice number.
+    //
+    // The regex filter keeps only canonical "INV-<digits>" numbers, excluding
+    // imported "INV-IMP-####" / "INV-####-###" formats. Because those numbers
+    // are zero-padded to 4 digits, descending lexical order equals numeric
+    // order, so the first row is the numeric max (holds up to INV-9999).
     const { data } = await supabase
       .from('sales')
       .select('invoice_number')
-      .order('created_at', { ascending: false })
+      .filter('invoice_number', 'match', '^INV-[0-9]+$')
+      .order('invoice_number', { ascending: false })
       .limit(1);
 
     if (!data || data.length === 0) return 'INV-0001';
 
-    const last = data[0].invoice_number as string;
-    const match = last.match(/INV-(\d+)/);
+    const match = (data[0].invoice_number as string).match(/^INV-(\d+)$/);
     if (!match) return 'INV-0001';
     return generateInvoiceNumber(parseInt(match[1], 10));
   }, []);
@@ -65,7 +87,7 @@ export function useSales() {
         return {
           sale_date: todayISO(),
           invoice_number: invoiceNumber,
-          medicine_name: med.medicine_name.trim(),
+          medicine_name: normalizeMedicineName(med.medicine_name),
           quantity: parseFloat(med.quantity) || 0,
           mrp: mrpVal,
           selling_rate: sellingRate,
@@ -155,7 +177,7 @@ export function useSales() {
         const { data, error: updErr } = await supabase
           .from('sales')
           .update({
-            medicine_name: med.medicine_name.trim(),
+            medicine_name: normalizeMedicineName(med.medicine_name),
             quantity: parseFloat(med.quantity) || 0,
             mrp: mrpVal,
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
@@ -187,7 +209,7 @@ export function useSales() {
           return {
             sale_date: originalSaleDate,
             invoice_number: invoiceNumber,
-            medicine_name: med.medicine_name.trim(),
+            medicine_name: normalizeMedicineName(med.medicine_name),
             quantity: parseFloat(med.quantity) || 0,
             mrp: mrpVal,
             selling_rate: parseFloat((mrpVal * (1 - discVal / 100)).toFixed(2)),
